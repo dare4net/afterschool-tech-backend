@@ -1,0 +1,23 @@
+# Node.js
+node_modules/
+.env
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Build folders
+dist/
+build/
+.next/
+out/
+
+# IDEs/editors
+.vscode/
+.idea/
+
+# Runtime data
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
