@@ -1,0 +1,1452 @@
+# AfterSchool Tech API Routes Specification
+
+This document outlines all the API routes required for the AfterSchool Tech dashboard based on the database structure.
+
+## Table of Contents
+1. Authentication Routes
+2. User Management Routes
+3. Student Routes
+4. Parent Routes
+5. Organization Routes
+6. Program Routes
+7. Module Routes
+8. Curriculum Item Routes
+9. Achievement Routes
+10. Registration Routes
+11. Content File Routes
+12. Student Group Routes
+13. Dashboard Routes
+
+## 1. Authentication Routes
+
+### POST /api/auth/login
+- Description: Authenticates a user and returns a JWT token
+- Request Body:
+  - email (string, required)
+  - password (string, required)
+- Response:
+  - token (string): JWT token
+  - user: User object with account_type
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Invalid credentials
+  - 400 Bad Request: Missing required fields
+
+### POST /api/auth/register
+- Description: Registers a new user
+- Request Body:
+  - email (string, required)
+  - password (string, required)
+  - full_name (string, required)
+  - account_type (enum: 'student', 'parent', 'organization', 'tutor', required)
+  - Additional fields based on account_type
+- Response:
+  - user: Created user object
+  - token: JWT token
+  - status: 201 Created
+- Error Responses:
+  - 400 Bad Request: Missing required fields or validation errors
+  - 409 Conflict: Email already exists
+
+### POST /api/auth/logout
+- Description: Invalidates the current JWT token
+- Headers:
+  - Authorization: Bearer {token}
+- Response:
+  - message: "Logged out successfully"
+  - status: 200 OK
+
+### GET /api/auth/me
+- Description: Returns the current authenticated user's information
+- Headers:
+  - Authorization: Bearer {token}
+- Response:
+  - user: User object with role-specific details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Invalid or expired token
+
+### PUT /api/auth/change-password
+- Description: Changes the user's password
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - current_password (string, required)
+  - new_password (string, required)
+- Response:
+  - message: "Password changed successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Invalid current password
+  - 400 Bad Request: Password validation errors
+
+## 2. User Management Routes
+
+### GET /api/users
+- Description: Returns a list of users (admin only)
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - account_type (string, optional): Filter by account type
+  - search (string, optional): Search by name or email
+- Response:
+  - users: Array of user objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized (not admin)
+
+### GET /api/users/{user_id}
+- Description: Returns a specific user's details (admin only)
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - user_id (integer, required): User ID
+- Response:
+  - user: User object with role-specific details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: User not found
+
+### PUT /api/users/{user_id}
+- Description: Updates a user's information (admin only)
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - user_id (integer, required): User ID
+- Request Body:
+  - email (string, optional)
+  - full_name (string, optional)
+  - account_type (enum, optional)
+  - Additional fields based on account_type
+- Response:
+  - user: Updated user object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: User not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/users/{user_id}
+- Description: Deletes a user (admin only)
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - user_id (integer, required): User ID
+- Response:
+  - message: "User deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: User not found
+
+## 3. Student Routes
+
+### GET /api/students
+- Description: Returns a list of students
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - organization_id (integer, optional): Filter by organization
+  - level (integer, optional): Filter by level
+  - search (string, optional): Search by name or email
+  - sort (string, optional): Sort field and direction (e.g., "full_name:asc")
+- Response:
+  - students: Array of student objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/students/{student_id}
+- Description: Returns a specific student's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+- Response:
+  - student: Student object with related data
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Student not found
+
+### POST /api/students
+- Description: Creates a new student
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - email (string, required)
+  - full_name (string, required)
+  - birth_date (date, required)
+  - level (integer, required)
+  - organization_id (integer, optional)
+  - password (string, required)
+- Response:
+  - student: Created student object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+
+### PUT /api/students/{student_id}
+- Description: Updates a student's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+- Request Body:
+  - email (string, optional)
+  - full_name (string, optional)
+  - birth_date (date, optional)
+  - level (integer, optional)
+  - organization_id (integer, optional)
+- Response:
+  - student: Updated student object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Student not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/students/{student_id}
+- Description: Deletes a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+- Response:
+  - message: "Student deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Student not found
+
+### GET /api/students/{student_id}/programs
+- Description: Returns programs a student is enrolled in
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+- Query Parameters:
+  - status (string, optional): Filter by program status
+- Response:
+  - programs: Array of program objects with registration details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Student not found
+
+### GET /api/students/{student_id}/achievements
+- Description: Returns achievements earned by a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+- Response:
+  - achievements: Array of achievement objects with earned_at date
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Student not found
+
+### GET /api/students/{student_id}/parents
+- Description: Returns parents associated with a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+- Response:
+  - parents: Array of parent objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Student not found
+
+### POST /api/students/{student_id}/parents/{parent_id}
+- Description: Associates a parent with a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+  - parent_id (integer, required): Parent ID
+- Response:
+  - message: "Parent associated with student successfully"
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Student or parent not found
+  - 409 Conflict: Association already exists
+
+### DELETE /api/students/{student_id}/parents/{parent_id}
+- Description: Removes parent association from a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+  - parent_id (integer, required): Parent ID
+- Response:
+  - message: "Parent removed from student successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Association not found
+
+## 4. Parent Routes
+
+### GET /api/parents
+- Description: Returns a list of parents
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - search (string, optional): Search by name or email
+  - sort (string, optional): Sort field and direction
+- Response:
+  - parents: Array of parent objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/parents/{parent_id}
+- Description: Returns a specific parent's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - parent_id (integer, required): Parent ID
+- Response:
+  - parent: Parent object with related data
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Parent not found
+
+### POST /api/parents
+- Description: Creates a new parent
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - email (string, required)
+  - full_name (string, required)
+  - phone_number (string, optional)
+  - password (string, required)
+- Response:
+  - parent: Created parent object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+
+### PUT /api/parents/{parent_id}
+- Description: Updates a parent's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - parent_id (integer, required): Parent ID
+- Request Body:
+  - email (string, optional)
+  - full_name (string, optional)
+  - phone_number (string, optional)
+- Response:
+  - parent: Updated parent object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Parent not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/parents/{parent_id}
+- Description: Deletes a parent
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - parent_id (integer, required): Parent ID
+- Response:
+  - message: "Parent deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Parent not found
+
+### GET /api/parents/{parent_id}/students
+- Description: Returns students associated with a parent
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - parent_id (integer, required): Parent ID
+- Response:
+  - students: Array of student objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Parent not found
+
+## 5. Organization Routes
+
+### GET /api/organizations
+- Description: Returns a list of organizations
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - search (string, optional): Search by name or email
+  - sort (string, optional): Sort field and direction
+- Response:
+  - organizations: Array of organization objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/organizations/{organization_id}
+- Description: Returns a specific organization's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - organization_id (integer, required): Organization ID
+- Response:
+  - organization: Organization object with related data
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Organization not found
+
+### POST /api/organizations
+- Description: Creates a new organization
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - email (string, required)
+  - full_name (string, required)
+  - contact_person (string, optional)
+  - contact_phone (string, optional)
+  - password (string, required)
+- Response:
+  - organization: Created organization object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+
+### PUT /api/organizations/{organization_id}
+- Description: Updates an organization's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - organization_id (integer, required): Organization ID
+- Request Body:
+  - email (string, optional)
+  - full_name (string, optional)
+  - contact_person (string, optional)
+  - contact_phone (string, optional)
+- Response:
+  - organization: Updated organization object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Organization not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/organizations/{organization_id}
+- Description: Deletes an organization
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - organization_id (integer, required): Organization ID
+- Response:
+  - message: "Organization deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Organization not found
+
+### GET /api/organizations/{organization_id}/students
+- Description: Returns students belonging to an organization
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - organization_id (integer, required): Organization ID
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - level (integer, optional): Filter by level
+- Response:
+  - students: Array of student objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Organization not found
+
+### GET /api/organizations/{organization_id}/programs
+- Description: Returns programs associated with an organization
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - organization_id (integer, required): Organization ID
+- Response:
+  - programs: Array of program objects with student counts
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Organization not found
+
+## 6. Program Routes
+
+### GET /api/programs
+- Description: Returns a list of programs
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - search (string, optional): Search by name
+  - status (string, optional): Filter by status (active, draft, upcoming, completed)
+  - sort (string, optional): Sort field and direction
+- Response:
+  - programs: Array of program objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/programs/{program_id}
+- Description: Returns a specific program's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+- Response:
+  - program: Program object with related data (modules, achievements)
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Program not found
+
+### POST /api/programs
+- Description: Creates a new program
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - name (string, required)
+  - description (text, optional)
+  - start_date (date, required)
+  - end_date (date, required)
+  - status (enum: 'draft', 'upcoming', 'active', 'completed', optional)
+- Response:
+  - program: Created program object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+
+### PUT /api/programs/{program_id}
+- Description: Updates a program's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+- Request Body:
+  - name (string, optional)
+  - description (text, optional)
+  - start_date (date, optional)
+  - end_date (date, optional)
+  - status (enum, optional)
+- Response:
+  - program: Updated program object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Program not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/programs/{program_id}
+- Description: Deletes a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+- Response:
+  - message: "Program deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Program not found
+
+### GET /api/programs/{program_id}/modules
+- Description: Returns modules belonging to a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+- Response:
+  - modules: Array of module objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Program not found
+
+### GET /api/programs/{program_id}/students
+- Description: Returns students enrolled in a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - organization_id (integer, optional): Filter by organization
+- Response:
+  - students: Array of student objects with registration details
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Program not found
+
+### POST /api/programs/{program_id}/students/{student_id}
+- Description: Enrolls a student in a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+  - student_id (integer, required): Student ID
+- Response:
+  - registration: Program registration object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Program or student not found
+  - 409 Conflict: Student already enrolled
+
+### DELETE /api/programs/{program_id}/students/{student_id}
+- Description: Unenrolls a student from a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+  - student_id (integer, required): Student ID
+- Response:
+  - message: "Student unenrolled successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Enrollment not found
+
+### GET /api/programs/{program_id}/achievements
+- Description: Returns achievements associated with a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+- Response:
+  - achievements: Array of achievement objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Program not found
+
+### POST /api/programs/{program_id}/achievements/{achievement_id}
+- Description: Associates an achievement with a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+  - achievement_id (integer, required): Achievement ID
+- Request Body:
+  - is_default (boolean, optional): Whether this is a default achievement
+- Response:
+  - program_achievement: Program achievement association object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Program or achievement not found
+  - 409 Conflict: Association already exists
+
+### DELETE /api/programs/{program_id}/achievements/{achievement_id}
+- Description: Removes an achievement association from a program
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - program_id (integer, required): Program ID
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - message: "Achievement removed from program successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Association not found
+
+## 7. Module Routes
+
+### GET /api/modules
+- Description: Returns a list of modules
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - program_id (integer, optional): Filter by program
+  - search (string, optional): Search by name
+  - status (string, optional): Filter by status
+  - sort (string, optional): Sort field and direction
+- Response:
+  - modules: Array of module objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/modules/{module_id}
+- Description: Returns a specific module's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+- Response:
+  - module: Module object with related data (curriculum items, achievements)
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Module not found
+
+### POST /api/modules
+- Description: Creates a new module
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - program_id (integer, required)
+  - name (string, required)
+  - description (text, optional)
+  - start_date (date, required)
+  - end_date (date, required)
+  - status (enum: 'draft', 'upcoming', 'active', 'completed', optional)
+- Response:
+  - module: Created module object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+  - 404 Not Found: Program not found
+
+### PUT /api/modules/{module_id}
+- Description: Updates a module's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+- Request Body:
+  - program_id (integer, optional)
+  - name (string, optional)
+  - description (text, optional)
+  - start_date (date, optional)
+  - end_date (date, optional)
+  - status (enum, optional)
+- Response:
+  - module: Updated module object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Module not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/modules/{module_id}
+- Description: Deletes a module
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+- Response:
+  - message: "Module deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Module not found
+
+### GET /api/modules/{module_id}/curriculum
+- Description: Returns curriculum items belonging to a module
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+- Response:
+  - curriculum_items: Array of curriculum item objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Module not found
+
+### GET /api/modules/{module_id}/achievements
+- Description: Returns achievements associated with a module
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+- Response:
+  - achievements: Array of achievement objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Module not found
+
+### POST /api/modules/{module_id}/achievements/{achievement_id}
+- Description: Associates an achievement with a module
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+  - achievement_id (integer, required): Achievement ID
+- Request Body:
+  - is_default (boolean, optional): Whether this is a default achievement
+- Response:
+  - module_achievement: Module achievement association object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Module or achievement not found
+  - 409 Conflict: Association already exists
+
+### DELETE /api/modules/{module_id}/achievements/{achievement_id}
+- Description: Removes an achievement association from a module
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - module_id (integer, required): Module ID
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - message: "Achievement removed from module successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Association not found
+
+## 8. Curriculum Item Routes
+
+### GET /api/curriculum
+- Description: Returns a list of curriculum items
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - module_id (integer, optional): Filter by module
+  - item_type (string, optional): Filter by type (lesson, evaluation, project)
+  - delivery_mode (string, optional): Filter by delivery mode (solo, group)
+  - search (string, optional): Search by title
+  - sort (string, optional): Sort field and direction
+- Response:
+  - curriculum_items: Array of curriculum item objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/curriculum/{item_id}
+- Description: Returns a specific curriculum item's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+- Response:
+  - curriculum_item: Curriculum item object with related data (content files, achievements)
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Curriculum item not found
+
+### POST /api/curriculum
+- Description: Creates a new curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - module_id (integer, required)
+  - title (string, required)
+  - description (text, optional)
+  - item_type (enum: 'lesson', 'evaluation', 'project', required)
+  - position (integer, required)
+  - delivery_mode (enum: 'solo', 'group', optional)
+- Response:
+  - curriculum_item: Created curriculum item object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+  - 404 Not Found: Module not found
+
+### PUT /api/curriculum/{item_id}
+- Description: Updates a curriculum item's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+- Request Body:
+  - module_id (integer, optional)
+  - title (string, optional)
+  - description (text, optional)
+  - item_type (enum, optional)
+  - position (integer, optional)
+  - delivery_mode (enum, optional)
+- Response:
+  - curriculum_item: Updated curriculum item object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Curriculum item not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/curriculum/{item_id}
+- Description: Deletes a curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+- Response:
+  - message: "Curriculum item deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Curriculum item not found
+
+### GET /api/curriculum/{item_id}/content
+- Description: Returns content files associated with a curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+- Response:
+  - content_files: Array of content file objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Curriculum item not found
+
+### POST /api/curriculum/{item_id}/content
+- Description: Uploads a content file for a curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+  - Content-Type: multipart/form-data
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+- Request Body:
+  - file (file, required): The file to upload
+- Response:
+  - content_file: Created content file object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Curriculum item not found
+  - 400 Bad Request: Invalid file
+
+### DELETE /api/curriculum/{item_id}/content/{file_id}
+- Description: Deletes a content file
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+  - file_id (integer, required): Content File ID
+- Response:
+  - message: "Content file deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Content file not found
+
+### GET /api/curriculum/{item_id}/achievements
+- Description: Returns achievements associated with a curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+- Response:
+  - achievements: Array of achievement objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Curriculum item not found
+
+### POST /api/curriculum/{item_id}/achievements/{achievement_id}
+- Description: Associates an achievement with a curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - curriculum_achievement: Curriculum achievement association object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Curriculum item or achievement not found
+  - 409 Conflict: Association already exists
+
+### DELETE /api/curriculum/{item_id}/achievements/{achievement_id}
+- Description: Removes an achievement association from a curriculum item
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - item_id (integer, required): Curriculum Item ID
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - message: "Achievement removed from curriculum item successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Association not found
+
+## 9. Achievement Routes
+
+### GET /api/achievements
+- Description: Returns a list of achievements
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - type (string, optional): Filter by type (badge, certificate, achievement)
+  - search (string, optional): Search by name
+  - sort (string, optional): Sort field and direction
+- Response:
+  - achievements: Array of achievement objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/achievements/{achievement_id}
+- Description: Returns a specific achievement's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - achievement: Achievement object with related data
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Achievement not found
+
+### POST /api/achievements
+- Description: Creates a new achievement
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - name (string, required)
+  - type (enum: 'badge', 'certificate', 'achievement', required)
+  - description (text, optional)
+  - criteria (text, optional)
+- Response:
+  - achievement: Created achievement object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+
+### PUT /api/achievements/{achievement_id}
+- Description: Updates an achievement's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - achievement_id (integer, required): Achievement ID
+- Request Body:
+  - name (string, optional)
+  - type (enum, optional)
+  - description (text, optional)
+  - criteria (text, optional)
+- Response:
+  - achievement: Updated achievement object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Achievement not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/achievements/{achievement_id}
+- Description: Deletes an achievement
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - message: "Achievement deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Achievement not found
+
+### POST /api/students/{student_id}/achievements/{achievement_id}
+- Description: Awards an achievement to a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - student_achievement: Student achievement object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Student or achievement not found
+  - 409 Conflict: Student already has this achievement
+
+### DELETE /api/students/{student_id}/achievements/{achievement_id}
+- Description: Removes an achievement from a student
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - student_id (integer, required): Student ID
+  - achievement_id (integer, required): Achievement ID
+- Response:
+  - message: "Achievement removed from student successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Student achievement not found
+
+## 10. Registration Routes
+
+### GET /api/registrations/programs
+- Description: Returns a list of program registrations
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - program_id (integer, optional): Filter by program
+  - student_id (integer, optional): Filter by student
+  - sort (string, optional): Sort field and direction
+- Response:
+  - registrations: Array of program registration objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/registrations/modules
+- Description: Returns a list of module registrations
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - module_id (integer, optional): Filter by module
+  - student_id (integer, optional): Filter by student
+  - sort (string, optional): Sort field and direction
+- Response:
+  - registrations: Array of module registration objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### POST /api/registrations/programs
+- Description: Creates a new program registration
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - program_id (integer, required)
+  - student_id (integer, required)
+- Response:
+  - registration: Created program registration object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+  - 404 Not Found: Program or student not found
+  - 409 Conflict: Registration already exists
+
+### POST /api/registrations/modules
+- Description: Creates a new module registration
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - module_id (integer, required)
+  - student_id (integer, required)
+- Response:
+  - registration: Created module registration object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+  - 404 Not Found: Module or student not found
+  - 409 Conflict: Registration already exists
+
+### DELETE /api/registrations/programs/{registration_id}
+- Description: Deletes a program registration
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - registration_id (integer, required): Program Registration ID
+- Response:
+  - message: "Program registration deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Registration not found
+
+### DELETE /api/registrations/modules/{registration_id}
+- Description: Deletes a module registration
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - registration_id (integer, required): Module Registration ID
+- Response:
+  - message: "Module registration deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Registration not found
+
+## 11. Content File Routes
+
+### GET /api/files/{file_id}
+- Description: Returns a specific content file
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - file_id (integer, required): Content File ID
+- Response:
+  - file: The requested file
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: File not found
+
+### POST /api/files/upload
+- Description: Uploads a file to the server
+- Headers:
+  - Authorization: Bearer {token}
+  - Content-Type: multipart/form-data
+- Request Body:
+  - file (file, required): The file to upload
+  - curriculum_item_id (integer, optional): Associated curriculum item
+- Response:
+  - file: Uploaded file object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Invalid file
+
+### DELETE /api/files/{file_id}
+- Description: Deletes a file
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - file_id (integer, required): Content File ID
+- Response:
+  - message: "File deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: File not found
+
+## 12. Student Group Routes
+
+### GET /api/groups
+- Description: Returns a list of student groups
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - page (integer, optional): Page number for pagination
+  - limit (integer, optional): Number of results per page
+  - curriculum_item_id (integer, optional): Filter by curriculum item
+  - search (string, optional): Search by group name
+- Response:
+  - groups: Array of student group objects
+  - pagination: Pagination details
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/groups/{group_id}
+- Description: Returns a specific student group's details
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - group_id (integer, required): Student Group ID
+- Response:
+  - group: Student group object with members
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 404 Not Found: Group not found
+
+### POST /api/groups
+- Description: Creates a new student group
+- Headers:
+  - Authorization: Bearer {token}
+- Request Body:
+  - curriculum_item_id (integer, required)
+  - group_name (string, required)
+  - student_ids (array of integers, optional): Initial group members
+- Response:
+  - group: Created student group object
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 400 Bad Request: Validation errors
+  - 404 Not Found: Curriculum item not found
+
+### PUT /api/groups/{group_id}
+- Description: Updates a student group's information
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - group_id (integer, required): Student Group ID
+- Request Body:
+  - group_name (string, optional)
+- Response:
+  - group: Updated student group object
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Group not found
+  - 400 Bad Request: Validation errors
+
+### DELETE /api/groups/{group_id}
+- Description: Deletes a student group
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - group_id (integer, required): Student Group ID
+- Response:
+  - message: "Student group deleted successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Group not found
+
+### POST /api/groups/{group_id}/students/{student_id}
+- Description: Adds a student to a group
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - group_id (integer, required): Student Group ID
+  - student_id (integer, required): Student ID
+- Response:
+  - message: "Student added to group successfully"
+  - status: 201 Created
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Group or student not found
+  - 409 Conflict: Student already in group
+
+### DELETE /api/groups/{group_id}/students/{student_id}
+- Description: Removes a student from a group
+- Headers:
+  - Authorization: Bearer {token}
+- Path Parameters:
+  - group_id (integer, required): Student Group ID
+  - student_id (integer, required): Student ID
+- Response:
+  - message: "Student removed from group successfully"
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+  - 403 Forbidden: Not authorized
+  - 404 Not Found: Group membership not found
+
+## 13. Dashboard Routes
+
+### GET /api/dashboard/stats
+- Description: Returns dashboard statistics
+- Headers:
+  - Authorization: Bearer {token}
+- Response:
+  - stats: Object containing various statistics
+    - student_count: Total number of students
+    - organization_count: Total number of organizations
+    - parent_count: Total number of parents
+    - program_count: Total number of programs
+    - recent_registrations: Recent program registrations
+    - recent_achievements: Recently awarded achievements
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/dashboard/recent-users
+- Description: Returns recently added users
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - limit (integer, optional): Number of results (default: 5)
+  - account_type (string, optional): Filter by account type
+- Response:
+  - users: Array of recent user objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/dashboard/recent-programs
+- Description: Returns recently added programs
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - limit (integer, optional): Number of results (default: 5)
+  - status (string, optional): Filter by program status
+- Response:
+  - programs: Array of recent program objects
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated
+
+### GET /api/dashboard/student-progress
+- Description: Returns student progress statistics
+- Headers:
+  - Authorization: Bearer {token}
+- Query Parameters:
+  - program_id (integer, optional): Filter by program
+  - organization_id (integer, optional): Filter by organization
+- Response:
+  - progress: Object containing progress statistics
+    - completion_rates: Program completion rates
+    - achievement_counts: Achievement distribution
+    - level_distribution: Student level distribution
+  - status: 200 OK
+- Error Responses:
+  - 401 Unauthorized: Not authenticated

@@ -1,4 +1,4 @@
-const pool = require('../config/dbPrograms'); // Adjust as needed
+const pool = require('../config/db'); // Adjust as needed
 
 exports.createProgram = async (req, res) => {
   try {
