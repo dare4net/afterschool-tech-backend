@@ -1,12 +1,12 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
-const { OAuth2Client } = require('google-auth-library');
+// const { OAuth2Client } = require('google-auth-library'); // Removed import
 const axios = require('axios');
 const generateUserId = require('../utils/generateUserId'); // <-- import generator
 
 // Google OAuth2 client
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+// const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 exports.signup = async (req, res) => {
   console.log('we are registering...');
@@ -105,34 +105,7 @@ exports.login = async (req, res) => {
 
 // Social Login: Google
 exports.googleLogin = async (req, res) => {
-  const { token } = req.body;
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    const payload = ticket.getPayload();
-    const email = payload.email;
-
-    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    let user;
-    if (existing.length) {
-      user = existing[0];
-    } else {
-      const [result] = await pool.query(
-        'INSERT INTO users (email, account_type) VALUES (?, ?)',
-        [email, 'user']
-      );
-      user = { id: result.insertId, email, account_type: 'user' };
-    }
-    const jwtToken = jwt.sign({ id: user.id, role: user.account_type }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
-    res.json({ token: jwtToken });
-  } catch (err) {
-    console.error('SQL Error:', err); // Log SQL errors
-    res.status(401).json({ error: 'Invalid Google token' });
-  }
+  res.status(501).json({ message: 'Google login is temporarily unavailable' });
 };
 
 // Social Login: Facebook
