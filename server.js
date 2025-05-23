@@ -15,7 +15,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'https://afterschool-tech.vercel.app'
+    'https://v0-afterschool-tech.vercel.app'
   ],
   credentials: true,
 }));
