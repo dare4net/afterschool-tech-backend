@@ -1,18 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const programController = require('../controllers/programController');
-const authenticate = require('../middleware/authenticate');
+const { authorize, authorizeRole } = require('../middleware/authorize');
 
-router.post('/', programController.createProgram);
-router.post('/:programId/modules', authenticate, programController.createModule);
-router.get('/:programId', authenticate, programController.getProgramDetails);
-router.post('/:programId/modules', authenticate, programController.createModule);
-router.post('/modules/:moduleId/curriculums', authenticate, programController.addCurriculum);
-router.get('/achievements/predefined', authenticate, programController.getPredefinedAchievements);
-router.post('/:programId/achievements', authenticate, programController.assignAchievementsToProgram);
-router.post('/modules/:moduleId/achievements', authenticate, programController.assignAchievementsToModule);
+// Public routes
+router.get('/', programController.listPrograms);
+router.get('/:programId', programController.getProgramDetails);
 
-module.exports = router;
-
+// Student routes
+router.get('/my/programs', authorize, authorizeRole('student'), programController.getMyPrograms);
+router.get('/my/programs/:programId/progress', authorize, authorizeRole('student'), programController.getMyProgramProgress);
+router.post('/:programId/register', authorize, authorizeRole('student'), programController.registerForProgram);
 
 module.exports = router;

@@ -1,7 +1,11 @@
-const pool = require('../config/db');
+const { MongoClient } = require('mongodb');
 
-// Helper: get table name by role
-function getTableByRole(role) {
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri);
+const db = client.db('afterschooltech');
+
+// Helper: get collection name by role (previously table)
+function getCollectionByRole(role) {
   switch (role) {
     case 'student': return 'students';
     case 'parent': return 'parents';
@@ -13,36 +17,72 @@ function getTableByRole(role) {
 
 // GET /api/profile
 exports.getProfile = async (req, res) => {
-    console.log('we are getting the profile...');
+  console.log('we are getting the profile...');
   const userId = req.user.user_id;
   const role = req.user.role;
   try {
     // Get base user info
-    const [users] = await pool.query(
-      'SELECT user_id, email, account_type, full_name FROM users WHERE user_id = ?',
-      [userId]
+    const user = await db.collection('users').findOne(
+      { user_id: userId },
+      { projection: { password_hash: 0 } } // Exclude sensitive data
     );
-    if (!users.length) return res.status(404).json({ message: 'User not found' });
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const user = users[0];
-    const table = getTableByRole(role);
+    const collection = getCollectionByRole(role);
     let profile = { ...user };
 
     // Get role-specific info
-    if (table) {
-      const [rows] = await pool.query(`SELECT * FROM ${table} WHERE user_id = ?`, [user.user_id]);
-      if (rows.length) {
-        profile = { ...profile, ...rows[0] };
+    if (collection) {
+      const roleSpecificData = await db.collection(collection).findOne({ user_id: userId });
+      if (roleSpecificData) {
+        // Remove _id from the role-specific data to avoid conflicts
+        delete roleSpecificData._id;
+        profile = { ...profile, ...roleSpecificData };
       }
     }
 
     res.json(profile);
   } catch (err) {
+    console.error('MongoDB Error:', err);
     res.status(500).json({ error: err.message });
   }
 };
 
 // PUT /api/profile
+// PUT /api/profile/password
+exports.updatePassword = async (req, res) => {
+  const userId = req.user.user_id;
+  const { currentPassword, newPassword } = req.body;
+
+  try {
+    // Get user with password hash
+    const user = await db.collection('users').findOne({ user_id: userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Verify current password
+    const bcrypt = require('bcrypt');
+    const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await db.collection('users').updateOne(
+      { user_id: userId },
+      { $set: { password_hash: newPasswordHash } }
+    );
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('MongoDB Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.updateProfile = async (req, res) => {
   const userId = req.user.user_id;
   const role = req.user.role;
@@ -51,31 +91,36 @@ exports.updateProfile = async (req, res) => {
   try {
     // Update base user info
     if (full_name) {
-      await pool.query('UPDATE users SET full_name = ? WHERE user_id = ?', [full_name, userId]);
+      await db.collection('users').updateOne(
+        { user_id: userId },
+        { $set: { full_name } }
+      );
     }
 
     // Update role-specific info
-    const table = getTableByRole(role);
-    if (table) {
-      // Only update fields that exist in the table
-      const [columnsRows] = await pool.query(`SHOW COLUMNS FROM ${table}`);
-      const columns = columnsRows.map(col => col.Field).filter(f => f !== 'user_id');
-      const updates = [];
-      const values = [];
-      for (const key of columns) {
-        if (rest[key] !== undefined) {
-          updates.push(`${key} = ?`);
-          values.push(rest[key]);
+    const collection = getCollectionByRole(role);
+    if (collection && Object.keys(rest).length > 0) {
+      // Remove any undefined values and sensitive fields
+      const updateData = {};
+      for (const [key, value] of Object.entries(rest)) {
+        if (value !== undefined && !['_id', 'user_id', 'password_hash'].includes(key)) {
+          updateData[key] = value;
         }
       }
-      if (updates.length) {
-        values.push(userId);
-        await pool.query(`UPDATE ${table} SET ${updates.join(', ')} WHERE user_id = ?`, values);
+
+      if (Object.keys(updateData).length > 0) {
+        // Use upsert to create the document if it doesn't exist
+        await db.collection(collection).updateOne(
+          { user_id: userId },
+          { $set: updateData },
+          { upsert: true }
+        );
       }
     }
 
     res.json({ message: 'Profile updated' });
   } catch (err) {
+    console.error('MongoDB Error:', err);
     res.status(500).json({ error: err.message });
   }
 };

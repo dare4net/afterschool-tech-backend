@@ -1,94 +1,257 @@
-const pool = require('../config/db'); // Adjust as needed
+const { MongoClient, ObjectId } = require('mongodb');
 
-exports.createProgram = async (req, res) => {
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri);
+const db = client.db('afterschooltech');
+
+// Helper function to convert string IDs to ObjectId
+const toObjectId = (id) => {
   try {
-    const { name, description, start_date, end_date } = req.body;
-    const [result] = await pool.query(
-      `INSERT INTO programs (name, description, start_date, end_date) VALUES (?, ?, ?, ?)`,
-      [name, description, start_date, end_date]
-    );
-    res.status(201).json({ program_id: result.insertId, message: 'Program created' });
+    return new ObjectId(id);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return null;
   }
 };
 
+// Helper function to recursively fetch modules and milestones
+async function fetchProgramDetails(programId) {
+  const program = await db.collection('programs').findOne({ _id: toObjectId(programId) });
+  if (!program) return null;
+
+  // Fetch modules
+  if (program.modules && program.modules.length > 0) {
+    const moduleIds = program.modules.map(id => toObjectId(id));
+    const modules = await db.collection('modules')
+      .find({ _id: { $in: moduleIds } })
+      .toArray();
+
+    // For each module, fetch its lessons and milestones
+    for (let module of modules) {
+      if (module.milestones && module.milestones.length > 0) {
+        const milestoneIds = module.milestones.map(id => toObjectId(id));
+        module.milestones = await db.collection('milestones')
+          .find({ _id: { $in: milestoneIds } })
+          .toArray();
+      }
+    }
+    program.modules = modules;
+  }
+
+  // Fetch program milestones
+  if (program.milestones && program.milestones.length > 0) {
+    const milestoneIds = program.milestones.map(id => toObjectId(id));
+    program.milestones = await db.collection('milestones')
+      .find({ _id: { $in: milestoneIds } })
+      .toArray();
+  }
+
+  return program;
+}
+
+// Get program details with all related data
 exports.getProgramDetails = async (req, res) => {
   try {
     const { programId } = req.params;
+    
+    const program = await fetchProgramDetails(programId);
+    
+    if (!program) {
+      return res.status(404).json({ message: 'Program not found' });
+    }
 
-    const [program] = await pool.query('SELECT * FROM programs WHERE id = ?', [programId]);
-    const [modules] = await pool.query('SELECT * FROM modules WHERE program_id = ?', [programId]);
-    const [achievements] = await pool.query(
-      `SELECT a.* FROM program_achievements pa JOIN achievements a ON pa.achievement_id = a.id WHERE pa.program_id = ?`,
-      [programId]
-    );
-
-    res.json({ program: program[0], modules, achievements });
+    res.json(program);
   } catch (error) {
+    console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
   }
 };
 
-exports.createModule = async (req, res) => {
+// Register a student for a program
+exports.registerForProgram = async (req, res) => {
   try {
     const { programId } = req.params;
-    const { name, description, start_date, end_date } = req.body;
-    const [result] = await pool.query(
-      `INSERT INTO modules (program_id, name, description, start_date, end_date) VALUES (?, ?, ?, ?, ?)`,
-      [programId, name, description, start_date, end_date]
-    );
-    res.status(201).json({ module_id: result.insertId, message: 'Module created' });
+    const userId = req.user.user_id; // From auth middleware
+    const programObjectId = toObjectId(programId);
+
+    // Verify program exists
+    const program = await db.collection('programs').findOne({ 
+      _id: programObjectId
+    });
+
+    if (!program) {
+      return res.status(404).json({ message: 'Program not found' });
+    }
+
+    // Check if already registered
+    const existingRegistration = await db.collection('program_registrations').findOne({
+      program_id: programObjectId,
+      user_id: userId
+    });
+
+    if (existingRegistration) {
+      return res.status(400).json({ message: 'Already registered for this program' });
+    }
+
+    // Create registration
+    const registration = {
+      program_id: programObjectId,
+      user_id: userId,
+      status: 'active',
+      progress: {
+        completed_modules: [],
+        completed_milestones: [],
+        current_module: null
+      },
+      registered_at: new Date(),
+      last_activity: new Date()
+    };
+
+    // Start a session for transaction
+    const session = client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // Insert registration
+        await db.collection('program_registrations').insertOne(registration, { session });
+
+        // Update user's programs array
+        await db.collection('users').updateOne(
+          { user_id: userId },
+          { 
+            $addToSet: { programs: programObjectId } // $addToSet ensures no duplicates
+          },
+          { session }
+        );
+      });
+
+      res.status(201).json({ 
+        message: 'Successfully registered for program',
+        registration_id: registration._id
+      });
+    } finally {
+      await session.endSession();
+    }
+
   } catch (error) {
+    console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
   }
 };
 
-exports.addCurriculum = async (req, res) => {
+// List all programs (with optional filters)
+exports.listPrograms = async (req, res) => {
   try {
-    const { moduleId } = req.params;
-    const { title, type, order, file_url } = req.body;
-    const [result] = await pool.query(
-      `INSERT INTO curriculums (module_id, title, type, \`order\`, file_url) VALUES (?, ?, ?, ?, ?)`,
-      [moduleId, title, type, order, file_url]
-    );
-    res.status(201).json({ curriculum_id: result.insertId, message: 'Curriculum added' });
+    const { search, sort = 'created_at' } = req.query;
+    
+    let query = {};
+    if (search) {
+      query = {
+        $or: [
+          { program_name: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } }
+        ]
+      };
+    }
+
+    const sortOptions = {};
+    sortOptions[sort] = -1; // Default to descending
+
+    const programs = await db.collection('programs')
+      .find(query)
+      .sort(sortOptions)
+      .toArray();
+
+    res.json(programs);
   } catch (error) {
+    console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
   }
 };
 
-exports.getPredefinedAchievements = async (req, res) => {
+// Get student's registered programs
+exports.getMyPrograms = async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM achievements');
-    res.json(rows);
+    const userId = req.user.user_id;
+
+    // Get user with their programs array
+    const user = await db.collection('users').findOne(
+      { user_id: userId },
+      { projection: { programs: 1 } }
+    );
+
+    if (!user || !user.programs || user.programs.length === 0) {
+      return res.json([]);
+    }
+
+    // Get full program details including registration info
+    const programs = await db.collection('programs')
+      .find({ _id: { $in: user.programs } })
+      .toArray();
+
+    // Get registration details for these programs
+    const registrations = await db.collection('program_registrations')
+      .find({
+        user_id: userId,
+        program_id: { $in: user.programs }
+      })
+      .toArray();
+
+    // Combine program data with registration details
+    const myPrograms = programs.map(program => {
+      const registration = registrations.find(reg => 
+        reg.program_id.toString() === program._id.toString()
+      );
+
+      return {
+        ...program,
+        registration_date: registration?.registered_at || null,
+        progress: registration?.progress || {
+          completed_modules: [],
+          completed_milestones: [],
+          current_module: null
+        },
+        status: registration?.status || 'active'
+      };
+    });
+
+    // Sort by registration date, newest first
+    myPrograms.sort((a, b) => 
+      (b.registration_date || 0) - (a.registration_date || 0)
+    );
+
+    res.json(myPrograms);
   } catch (error) {
+    console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
   }
 };
 
-exports.assignAchievementsToProgram = async (req, res) => {
+// Get user's progress for a specific program
+exports.getMyProgramProgress = async (req, res) => {
   try {
     const { programId } = req.params;
-    const { achievementIds } = req.body;
+    const userId = req.user.user_id;
+    
+    // Find the registration for this program
+    const registration = await db.collection('program_registrations').findOne({
+      program_id: toObjectId(programId),
+      user_id: userId
+    });
 
-    const values = achievementIds.map(id => [programId, id]);
-    await pool.query('INSERT INTO program_achievements (program_id, achievement_id) VALUES ?', [values]);
-    res.json({ message: 'Achievements assigned to program' });
+    if (!registration) {
+      return res.status(404).json({ 
+        message: 'No registration found for this program' 
+      });
+    }
+
+    res.json({
+      program_id: programId,
+      progress: registration.progress,
+      status: registration.status,
+      last_activity: registration.last_activity
+    });
+    
   } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-exports.assignAchievementsToModule = async (req, res) => {
-  try {
-    const { moduleId } = req.params;
-    const { achievementIds } = req.body;
-
-    const values = achievementIds.map(id => [moduleId, id]);
-    await pool.query('INSERT INTO module_achievements (module_id, achievement_id) VALUES ?', [values]);
-    res.json({ message: 'Achievements assigned to module' });
-  } catch (error) {
+    console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
   }
 };

@@ -1,9 +1,12 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const pool = require('../config/db');
-// const { OAuth2Client } = require('google-auth-library'); // Removed import
+const { MongoClient, ObjectId } = require('mongodb');
 const axios = require('axios');
-const generateUserId = require('../utils/generateUserId'); // <-- import generator
+const generateUserId = require('../utils/generateUserId');
+
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri);
+const db = client.db('afterschooltech');
 
 // Google OAuth2 client
 // const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -12,40 +15,37 @@ exports.signup = async (req, res) => {
   console.log('we are registering...');
   const { email, password, role, full_name } = req.body;
   try {
-    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (existing.length) return res.status(400).json({ message: 'User already exists' });
+    // Check if user exists
+    const existing = await db.collection('users').findOne({ email });
+    if (existing) return res.status(400).json({ message: 'User already exists' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user_id = await generateUserId(pool); // <-- generate unique 5-digit user_id
+    const user_id = await generateUserId(); // Generate a unique 5-digit user_id
 
-    // Insert into users table
-    const [result] = await pool.query(
-      'INSERT INTO users (user_id, email, password_hash, account_type, full_name) VALUES (?, ?, ?, ?, ?)',
-      [user_id, email, hashedPassword, role, full_name || null]
-    );
+    // Create user document
+    const userDoc = {
+      user_id,
+      email,
+      password_hash: hashedPassword,
+      account_type: role,
+      full_name: full_name || null,
+      created_at: new Date()
+    };
 
-    // Insert into subtype table based on role
-    if (role === 'student') {
-      await pool.query(
-        'INSERT INTO students (user_id, email, full_name) VALUES (?, ?, ?)',
-        [user_id, email, full_name || '']
-      );
-    } else if (role === 'parent') {
-      await pool.query(
-        'INSERT INTO parents (user_id, email, full_name) VALUES (?, ?, ?)',
-        [user_id, email, full_name || '']
-      );
-    } else if (role === 'organization') {
-      await pool.query(
-        'INSERT INTO organizations (user_id, email, full_name) VALUES (?, ?, ?)',
-        [user_id, email, full_name || '']
-      );
-    } else if (role === 'tutor') {
-      await pool.query(
-        'INSERT INTO tutors (user_id, full_name) VALUES (?, ?)',
-        [user_id, full_name || '']
-      );
-    }
+    // Insert user document
+    await db.collection('users').insertOne(userDoc);
+
+    // Create role-specific document
+    const roleDoc = {
+      user_id,
+      email,
+      full_name: full_name || '',
+      created_at: new Date()
+    };
+
+    // Insert into role-specific collection
+    const collection = `${role}s`; // students, parents, organizations, tutors
+    await db.collection(collection).insertOne(roleDoc);
 
     // Automatic login after registration
     const token = jwt.sign(
@@ -82,8 +82,7 @@ exports.login = async (req, res) => {
   console.log('we are logging in...');
   const { email, password } = req.body;
   try {
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    const user = rows[0];
+    const user = await db.collection('users').findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
     // Use password_hash for bcrypt comparison
@@ -98,7 +97,7 @@ exports.login = async (req, res) => {
     );
     res.json({ token });
   } catch (err) {
-    console.error('SQL Error:', err); // Log SQL errors
+    console.error('MongoDB Error:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -117,24 +116,30 @@ exports.facebookLogin = async (req, res) => {
     const fbRes = await axios.get(fbUrl);
     const email = fbRes.data.email;
     if (!email) return res.status(400).json({ error: 'Facebook account has no email' });
+
     // Check if user exists
-    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    let user;
-    if (existing.length) {
-      user = existing[0];
-    } else {
-      const [result] = await pool.query(
-        'INSERT INTO users (email, account_type) VALUES (?, ?)',
-        [email, 'user']
-      );
-      user = { id: result.insertId, email, account_type: 'user' };
+    let user = await db.collection('users').findOne({ email });
+    
+    if (!user) {
+      const userDoc = {
+        email,
+        account_type: 'user',
+        full_name: fbRes.data.name,
+        facebook_id: userID,
+        created_at: new Date()
+      };
+      const result = await db.collection('users').insertOne(userDoc);
+      user = { _id: result.insertedId, ...userDoc };
     }
-    const jwtToken = jwt.sign({ id: user.id, role: user.account_type }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
+
+    const jwtToken = jwt.sign(
+      { user_id: user._id.toString(), role: user.account_type },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
     res.json({ token: jwtToken });
   } catch (err) {
-    console.error('SQL Error:', err); // Log SQL errors
+    console.error('MongoDB Error:', err);
     res.status(401).json({ error: 'Invalid Facebook token' });
   }
 };
@@ -149,24 +154,29 @@ exports.appleLogin = async (req, res) => {
       return res.status(400).json({ error: 'Invalid Apple token' });
     }
     const email = decoded.payload.email;
+    
     // Check if user exists
-    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    let user;
-    if (existing.length) {
-      user = existing[0];
-    } else {
-      const [result] = await pool.query(
-        'INSERT INTO users (email, account_type) VALUES (?, ?)',
-        [email, 'user']
-      );
-      user = { id: result.insertId, email, account_type: 'user' };
+    let user = await db.collection('users').findOne({ email });
+    
+    if (!user) {
+      const userDoc = {
+        email,
+        account_type: 'user',
+        apple_sub: decoded.payload.sub,
+        created_at: new Date()
+      };
+      const result = await db.collection('users').insertOne(userDoc);
+      user = { _id: result.insertedId, ...userDoc };
     }
-    const jwtToken = jwt.sign({ id: user.id, role: user.account_type }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
+
+    const jwtToken = jwt.sign(
+      { user_id: user._id.toString(), role: user.account_type },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
     res.json({ token: jwtToken });
   } catch (err) {
-    console.error('SQL Error:', err); // Log SQL errors
+    console.error('MongoDB Error:', err);
     res.status(401).json({ error: 'Invalid Apple token' });
   }
 };

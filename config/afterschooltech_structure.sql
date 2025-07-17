@@ -28,7 +28,7 @@ SET time_zone = "+00:00";
 --
 
 CREATE TABLE `achievements_library` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `name` varchar(100) DEFAULT NULL,
   `type` enum('badge','certificate','achievement') NOT NULL,
   `description` text DEFAULT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE `achievements_library` (
 --
 
 CREATE TABLE `content_files` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `curriculum_item_id` int(11) DEFAULT NULL,
   `file_url` varchar(255) NOT NULL,
   `uploaded_by` int(11) DEFAULT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE `content_files` (
 --
 
 CREATE TABLE `curriculum_items` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `module_id` int(11) DEFAULT NULL,
   `title` varchar(150) DEFAULT NULL,
   `item_type` enum('lesson','evaluation','project') NOT NULL,
@@ -72,7 +72,8 @@ CREATE TABLE `curriculum_items` (
 
 CREATE TABLE `group_members` (
   `group_id` int(11) NOT NULL,
-  `student_id` int(11) NOT NULL
+  `student_id` int(11) NOT NULL,
+  PRIMARY KEY (`group_id`, `student_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -82,7 +83,7 @@ CREATE TABLE `group_members` (
 --
 
 CREATE TABLE `modules` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `program_id` int(11) DEFAULT NULL,
   `name` varchar(100) DEFAULT NULL,
   `description` text DEFAULT NULL
@@ -95,7 +96,7 @@ CREATE TABLE `modules` (
 --
 
 CREATE TABLE `module_registrations` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `student_id` int(11) DEFAULT NULL,
   `module_id` int(11) DEFAULT NULL,
   `registration_date` timestamp NULL DEFAULT current_timestamp()
@@ -108,7 +109,7 @@ CREATE TABLE `module_registrations` (
 --
 
 CREATE TABLE `organizations` (
-  `user_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL PRIMARY KEY,
   `email` varchar(100) NOT NULL,
   `full_name` varchar(100) NOT NULL,
   `contact_person` varchar(100) DEFAULT NULL,
@@ -122,7 +123,7 @@ CREATE TABLE `organizations` (
 --
 
 CREATE TABLE `parents` (
-  `user_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL PRIMARY KEY,
   `email` varchar(100) NOT NULL,
   `full_name` varchar(100) NOT NULL,
   `phone_number` varchar(20) DEFAULT NULL
@@ -135,7 +136,7 @@ CREATE TABLE `parents` (
 --
 
 CREATE TABLE `programs` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `name` varchar(100) NOT NULL,
   `description` text DEFAULT NULL,
   `start_date` date DEFAULT NULL,
@@ -150,7 +151,7 @@ CREATE TABLE `programs` (
 --
 
 CREATE TABLE `program_achievements` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `program_id` int(11) DEFAULT NULL,
   `achievement_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -162,7 +163,7 @@ CREATE TABLE `program_achievements` (
 --
 
 CREATE TABLE `program_registrations` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `student_id` int(11) DEFAULT NULL,
   `program_id` int(11) DEFAULT NULL,
   `registration_date` timestamp NULL DEFAULT current_timestamp()
@@ -175,7 +176,7 @@ CREATE TABLE `program_registrations` (
 --
 
 CREATE TABLE `students` (
-  `user_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL PRIMARY KEY,
   `email` varchar(100) NOT NULL,
   `full_name` varchar(100) NOT NULL,
   `birth_date` date DEFAULT NULL,
@@ -190,7 +191,7 @@ CREATE TABLE `students` (
 --
 
 CREATE TABLE `student_achievements` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `student_id` int(11) DEFAULT NULL,
   `achievement_id` int(11) DEFAULT NULL,
   `earned_at` timestamp NULL DEFAULT current_timestamp()
@@ -203,7 +204,7 @@ CREATE TABLE `student_achievements` (
 --
 
 CREATE TABLE `student_groups` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `curriculum_item_id` int(11) DEFAULT NULL,
   `group_name` varchar(100) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -216,7 +217,8 @@ CREATE TABLE `student_groups` (
 
 CREATE TABLE `student_parent` (
   `student_id` int(11) NOT NULL,
-  `parent_id` int(11) NOT NULL
+  `parent_id` int(11) NOT NULL,
+  PRIMARY KEY (`student_id`, `parent_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -226,7 +228,7 @@ CREATE TABLE `student_parent` (
 --
 
 CREATE TABLE `tutors` (
-  `user_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL PRIMARY KEY,
   `bio` text DEFAULT NULL,
   `expertise` varchar(255) DEFAULT NULL,
   `full_name` varchar(100) DEFAULT NULL,
@@ -240,7 +242,7 @@ CREATE TABLE `tutors` (
 --
 
 CREATE TABLE `users` (
-  `user_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL PRIMARY KEY,
   `email` varchar(100) NOT NULL,
   `full_name` varchar(100) DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
@@ -255,7 +257,7 @@ CREATE TABLE `users` (
 --
 
 CREATE TABLE `curriculum_achievements` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `curriculum_item_id` int(11) DEFAULT NULL,
   `achievement_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -267,7 +269,7 @@ CREATE TABLE `curriculum_achievements` (
 --
 
 CREATE TABLE `module_achievements` (
-  `id` int(11) NOT NULL,
+  `id` int(11) NOT NULL PRIMARY KEY,
   `module_id` int(11) DEFAULT NULL,
   `achievement_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -279,12 +281,11 @@ CREATE TABLE `module_achievements` (
 --
 
 CREATE TABLE `submissions` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `student_id` int(11) NOT NULL,
   `curriculum_item_id` int(11) NOT NULL,
   `score` float DEFAULT NULL,
   `submitted_at` timestamp NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
   KEY `student_id` (`student_id`),
   KEY `curriculum_item_id` (`curriculum_item_id`),
   CONSTRAINT `fk_submissions_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`user_id`) ON DELETE CASCADE,
@@ -298,11 +299,10 @@ CREATE TABLE `submissions` (
 --
 
 CREATE TABLE `curriculum_starts` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `student_id` int(11) NOT NULL,
   `curriculum_item_id` int(11) NOT NULL,
   `started_at` timestamp NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
   KEY `student_id` (`student_id`),
   KEY `curriculum_item_id` (`curriculum_item_id`),
   CONSTRAINT `fk_starts_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`user_id`) ON DELETE CASCADE,
