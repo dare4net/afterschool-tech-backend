@@ -32,7 +32,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://v0-afterschool-tech.vercel.app',
-    '*'
+    'https://v0-afterschool-tech-git-beta-chatzteam-gmailcoms-projects.vercel.app'
   ],
   credentials: true,
 }));
