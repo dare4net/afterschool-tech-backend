@@ -7,6 +7,8 @@ const authRoutes = require('./routes/authRoutes');
 const programRoutes = require('./routes/programRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const lessonRoutes = require('./routes/lessonRoutes');
+const betaRoutes = require('./routes/betaRoutes');
 
 // MongoDB Connection Setup
 const uri = process.env.MONGODB_URI;
@@ -66,6 +68,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/programs', programRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/lessons', lessonRoutes);
+app.use('/api/beta', betaRoutes);
 
 // Connect to MongoDB then start the server
 connectDB().then(() => {
