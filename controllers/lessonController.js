@@ -1,5 +1,6 @@
 const { MongoClient, ObjectId } = require('mongodb');
 const Redis = require('ioredis');
+const { accessCheck } = require('../utils/accessChecker');
 
 const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri);
@@ -353,16 +354,14 @@ exports.getAllLessonsByUser = async (req, res) => {
       return res.json([]);
     }
 
-    // Filter lessons based on access permissions
-    const accessibleLessons = moduleLessons.filter(lesson => {
-      // If no access array is defined, assume it's accessible to everyone
-      if (!lesson.access || !Array.isArray(lesson.access) || lesson.access.length === 0) {
-        return true;
+    // Filter lessons based on access permissions using the new access checker
+    const accessibleLessons = [];
+    for (const lesson of moduleLessons) {
+      const checker = accessCheck(lesson.access);
+      if (await checker.check(req.user)) {
+        accessibleLessons.push(lesson);
       }
-      
-      // Check if lesson is accessible to everyone or specifically to this user
-      return lesson.access.includes('everyone') || lesson.access.includes(userIdString);
-    });
+    }
 
     console.log(`[LESSON] Found ${moduleLessons.length} lessons in module, ${accessibleLessons.length} accessible to user`);
 
