@@ -49,6 +49,8 @@ class AccessChecker {
         }
 
         case 'email': {
+          // Original implementation
+          /* 
           console.log('[ACCESS] Fetching user email for:', user.user_id);
           const userDoc = await this.mainDb.collection('users').findOne(
             { user_id: user.user_id },
@@ -60,6 +62,21 @@ class AccessChecker {
           }
           const hasAccess = this.access.auth.includes(userDoc.email);
           console.log('[ACCESS] Email check:', { email: userDoc.email, hasAccess, allowedEmails: this.access.auth });
+          return hasAccess;
+          */
+
+          // New direct email check implementation
+          const emailToCheck = user.email || user.email_address;
+          if (!emailToCheck) {
+            console.warn('[ACCESS] No email provided in user object');
+            return false;
+          }
+          const hasAccess = this.access.auth.includes(emailToCheck);
+          console.log('[ACCESS] Direct email check:', { 
+            email: emailToCheck, 
+            hasAccess, 
+            allowedEmails: this.access.auth 
+          });
           return hasAccess;
         }
 

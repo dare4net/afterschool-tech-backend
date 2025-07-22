@@ -9,6 +9,7 @@ const profileRoutes = require('./routes/profileRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const lessonRoutes = require('./routes/lessonRoutes');
 const betaRoutes = require('./routes/betaRoutes');
+const temporaryAccessMiddleware = require('./middleware/temporaryAccess');
 
 // MongoDB Connection Setup
 const uri = process.env.MONGODB_URI;
@@ -64,6 +65,9 @@ app.get('/api/test-db', async (req, res) => {
     });
   }
 });
+
+// Add temporary access middleware only for auth routes
+app.use('/api/auth', temporaryAccessMiddleware);
 
 // Routes
 app.use('/api/auth', authRoutes);
