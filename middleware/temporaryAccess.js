@@ -12,7 +12,7 @@ const TEMPORARY_ACCESS_LESSON_ID = '687f80c7d4187f2163d7365b'; // Replace with y
 const temporaryAccessMiddleware = async (req, res, next) => {
   // Only check login and register routes
   console.log('[TEMP ACCESS] Checking path:', req.path);
-  if (!req.path.includes('/login') && !req.path.includes('/signup')) {
+  if (!req.path.includes('/signup')) {
     console.log('[TEMP ACCESS] Skipping non-auth route');
     return next();
   }
