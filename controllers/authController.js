@@ -1,12 +1,9 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { MongoClient, ObjectId } = require('mongodb');
+const { ObjectId } = require('mongodb');
 const axios = require('axios');
+const { getMainDb } = require('../config/database');
 const generateUserId = require('../utils/generateUserId');
-
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
-const db = client.db('afterschooltech');
 
 // Google OAuth2 client
 // const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -15,6 +12,7 @@ exports.signup = async (req, res) => {
   console.log('we are registering...');
   const { email, password, role, full_name } = req.body;
   try {
+    const db = await getMainDb();
     // Check if user exists
     const existing = await db.collection('users').findOne({ email });
     if (existing) return res.status(400).json({ message: 'User already exists' });
@@ -61,27 +59,13 @@ exports.signup = async (req, res) => {
   }
 };
 
-// Registration endpoint (no password, for social/open registration)
-exports.register = async (req, res) => {
-  const { email, role = 'user' } = req.body;
-  try {
-    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (existing.length) return res.status(400).json({ message: 'User already exists' });
-
-    await pool.query('INSERT INTO users (email, account_type) VALUES (?, ?)', [
-      email, role
-    ]);
-    res.status(201).json({ message: 'User registered' });
-  } catch (err) {
-    console.error('SQL Error:', err); // Log SQL errors
-    res.status(500).json({ error: err.message });
-  }
-};
+// REMOVED: Dead MySQL register function - use signup instead
 
 exports.login = async (req, res) => {
   console.log('we are logging in...');
   const { email, password } = req.body;
   try {
+    const db = await getMainDb();
     const user = await db.collection('users').findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
@@ -111,6 +95,7 @@ exports.googleLogin = async (req, res) => {
 exports.facebookLogin = async (req, res) => {
   const { accessToken, userID } = req.body;
   try {
+    const db = await getMainDb();
     // Verify token and get user info
     const fbUrl = `https://graph.facebook.com/v12.0/${userID}?fields=id,name,email&access_token=${accessToken}`;
     const fbRes = await axios.get(fbUrl);
@@ -119,7 +104,7 @@ exports.facebookLogin = async (req, res) => {
 
     // Check if user exists
     let user = await db.collection('users').findOne({ email });
-    
+
     if (!user) {
       const userDoc = {
         email,
@@ -148,16 +133,17 @@ exports.facebookLogin = async (req, res) => {
 exports.appleLogin = async (req, res) => {
   const { idToken } = req.body;
   try {
+    const db = await getMainDb();
     // Apple ID token is a JWT, decode it
     const decoded = jwt.decode(idToken, { complete: true });
     if (!decoded || !decoded.payload || !decoded.payload.email) {
       return res.status(400).json({ error: 'Invalid Apple token' });
     }
     const email = decoded.payload.email;
-    
+
     // Check if user exists
     let user = await db.collection('users').findOne({ email });
-    
+
     if (!user) {
       const userDoc = {
         email,

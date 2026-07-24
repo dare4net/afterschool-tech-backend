@@ -1,9 +1,10 @@
-const pool = require('../config/db');
+const { getMainDb } = require('../config/database');
 
 // User Management
 exports.getAllUsers = async (req, res) => {
   try {
-    const [users] = await pool.query('SELECT * FROM users');
+    const db = await getMainDb();
+    const users = await db.collection('users').find().toArray();
     res.json(users);
   } catch (error) {
     res.status(500).json({ error: error.message });
