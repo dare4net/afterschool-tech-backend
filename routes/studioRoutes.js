@@ -18,6 +18,15 @@ router.use(authenticate);
 router.use(requireTutor);
 
 // ===========================
+// ANALYTICS & ACTIVITY
+// ===========================
+router.get('/stats', studioController.getStudioStats);
+router.get('/activity', studioController.getStudioActivity);
+router.get('/students', studioController.getStudioStudents);
+router.get('/students/:id', studioController.getStudioStudentDetail);
+router.get('/students/:id/programs/:programId', studioController.getStudioStudentProgramBreakdown);
+
+// ===========================
 // PROGRAM ROUTES
 // ===========================
 router.post('/programs', validate(createProgramSchema), studioController.createProgram);

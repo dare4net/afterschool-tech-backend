@@ -1,5 +1,5 @@
 const { ObjectId } = require('mongodb');
-const { getMainDb, getLessonsDb } = require('../config/database');
+const { getMainDb, getLessonsDb, client } = require('../config/database');
 const { accessCheck } = require('../utils/accessChecker');
 
 // Redis disabled
@@ -30,6 +30,7 @@ exports.createLesson = async (req, res) => {
       resources = []
     } = req.body;
 
+    const db = await getMainDb();
     const lesson = {
       module_id: toObjectId(moduleId),
       title,
@@ -63,25 +64,73 @@ exports.createLesson = async (req, res) => {
   }
 };
 
-// Get lesson details
+// Get lesson details (full content for viewer)
 exports.getLessonDetails = async (req, res) => {
   console.log(`[LESSON] Get Lesson Details called - ${new Date().toISOString()}`);
-  console.log('[LESSON] Lesson ID:', req.params.lessonId);
+  const { lessonId } = req.params;
+  const userId = req.user?.user_id;
+  const userIdString = String(userId);
+
+  console.log('[LESSON] Lesson ID:', lessonId);
+  console.log('[LESSON] User ID:', userId);
+
   try {
-    const { lessonId } = req.params;
+    const mainDb = await getMainDb();
+    const lessonsDb = await getLessonsDb();
 
-    const lesson = await db.collection('lessons').findOne({
-      _id: toObjectId(lessonId)
-    });
+    let metaData = null;
+    let contentData = null;
 
-    if (!lesson) {
-      const errorResponse = { message: 'Lesson not found' };
-      console.log('[LESSON] Error Response:', JSON.stringify(errorResponse, null, 2));
-      return res.status(404).json(errorResponse);
+    // 1. Try to find metadata by ObjectId first
+    const objectId = toObjectId(lessonId);
+    if (objectId) {
+      metaData = await mainDb.collection('lessons').findOne({ _id: objectId });
     }
 
-    console.log('[LESSON] Success Response:', JSON.stringify(lesson, null, 2));
-    res.json(lesson);
+    // 2. Try to find content by string ID if not found or if lessonId is a string
+    // If we have metadata, use lesson_data to find content
+    if (metaData && metaData.lesson_data) {
+      contentData = await lessonsDb.collection('lessons').findOne({
+        _id: toObjectId(metaData.lesson_data)
+      });
+    } else {
+      // If no metadata found yet, the lessonId might be the string 'id' from ast_lessons
+      contentData = await lessonsDb.collection('lessons').findOne({
+        id: lessonId
+      });
+
+      // If found content, try to find back the metadata
+      if (contentData) {
+        metaData = await mainDb.collection('lessons').findOne({
+          lesson_data: contentData._id
+        });
+      }
+    }
+
+    if (!contentData) {
+      return res.status(404).json({ message: 'Lesson content not found' });
+    }
+
+    // 3. Fetch user interaction if userId is available
+    let interaction = null;
+    if (userId) {
+      interaction = await lessonsDb.collection('interactions').findOne({
+        userId: userIdString,
+        lessonId: contentData.id
+      });
+    }
+
+    // Combine metadata and content for the viewer
+    const response = {
+      lesson: {
+        ...contentData,
+        metadata: metaData || {}
+      },
+      interaction: interaction
+    };
+
+    console.log('[LESSON] Success Response sent for lesson:', contentData.id);
+    res.json(response);
   } catch (error) {
     console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
@@ -102,6 +151,8 @@ exports.updateLesson = async (req, res) => {
     delete updateData.created_at;
 
     updateData.updated_at = new Date();
+
+    const db = await getMainDb();
 
     const result = await db.collection('lessons').updateOne(
       { _id: toObjectId(lessonId) },
@@ -139,6 +190,8 @@ exports.markLessonCompleted = async (req, res) => {
       time_spent: req.body.timeSpent // Optional, tracking time spent
     };
 
+    const db = await getMainDb();
+
     // Find the module this lesson belongs to
     const lesson = await db.collection('lessons').findOne(
       { _id: toObjectId(lessonId) },
@@ -156,18 +209,25 @@ exports.markLessonCompleted = async (req, res) => {
         // Add to lesson completions
         await db.collection('lesson_completions').insertOne(completion, { session });
 
-        // Update user's progress in program_registrations
-        await db.collection('program_registrations').updateOne(
-          {
-            user_id: userId,
-            'progress.current_module': lesson.module_id
-          },
-          {
-            $addToSet: { 'progress.completed_lessons': toObjectId(lessonId) },
-            $set: { last_activity: new Date() }
-          },
-          { session }
+        // Find the program registration this module belongs to
+        const regProgram = await db.collection('programs').findOne(
+          { modules: lesson.module_id },
+          { projection: { _id: 1 } }
         );
+
+        if (regProgram) {
+          await db.collection('program_registrations').updateOne(
+            {
+              user_id: userId,
+              program_id: regProgram._id
+            },
+            {
+              $addToSet: { 'progress.completed_lessons': toObjectId(lessonId) },
+              $set: { last_activity: new Date() }
+            },
+            { session }
+          );
+        }
       });
 
       const response = {
@@ -193,6 +253,8 @@ exports.getCompletedLessons = async (req, res) => {
   try {
     const userId = req.user.user_id;
     const { moduleId } = req.query;
+
+    const db = await getMainDb();
 
     let query = { user_id: userId };
     if (moduleId) {
@@ -246,11 +308,31 @@ exports.getModuleLessons = async (req, res) => {
     const { moduleId } = req.params;
     const userId = req.user.user_id;
 
-    // Get all lessons for the module
+    const db = await getMainDb();
+    const lessonsDb = await getLessonsDb();
+
+    // Get all lessons for the module from mainDb
     const lessons = await db.collection('lessons')
       .find({ module_id: toObjectId(moduleId) })
       .sort({ order: 1 })
       .toArray();
+
+    if (lessons.length === 0) {
+      return res.json([]);
+    }
+
+    // Get the ast_lesson string IDs from lessonsDb
+    const lessonDataObjectIds = lessons
+      .filter(l => l.lesson_data)
+      .map(l => toObjectId(l.lesson_data))
+      .filter(id => id !== null);
+
+    const astLessons = await lessonsDb.collection('lessons')
+      .find({ _id: { $in: lessonDataObjectIds } })
+      .project({ _id: 1, id: 1 })
+      .toArray();
+
+    const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id]));
 
     // Get completion status for these lessons
     const completions = await db.collection('lesson_completions')
@@ -260,16 +342,29 @@ exports.getModuleLessons = async (req, res) => {
       })
       .toArray();
 
-    // Combine lesson data with completion status
-    const lessonsWithStatus = lessons.map(lesson => ({
-      ...lesson,
-      completed: completions.some(c => c.lesson_id.equals(lesson._id)),
-      completed_at: completions.find(c => c.lesson_id.equals(lesson._id))?.completed_at || null,
-      score: completions.find(c => c.lesson_id.equals(lesson._id))?.score || null
-    }));
+    // Get granular interactions to show partial progress
+    const interactions = await lessonsDb.collection('interactions').find({
+      userId: userId,
+      lessonId: { $in: Array.from(lessonDataToAstId.values()) }
+    }).toArray();
+
+    // Combine lesson data with completion status and ast ID
+    const lessonsWithStatus = lessons.map(lesson => {
+      const astLessonId = lesson.lesson_data ? lessonDataToAstId.get(lesson.lesson_data.toString()) : null;
+      const completion = completions.find(c => c.lesson_id.equals(lesson._id));
+      const interaction = interactions.find(i => i.lessonId === astLessonId);
+
+      return {
+        ...lesson,
+        lessonId: astLessonId, // String ID for viewer redirect
+        completed: !!completion,
+        progress: completion ? 100 : (interaction?.lessonState?.progress || 0),
+        completed_at: completion?.completed_at || null,
+        score: completion ? completion.score : (interaction?.lessonState?.score || 0)
+      };
+    });
 
     console.log(`[LESSON] Success Response: Found ${lessonsWithStatus.length} lessons in module`);
-    console.log('[LESSON] Response Details:', JSON.stringify(lessonsWithStatus, null, 2));
     res.json(lessonsWithStatus);
   } catch (error) {
     console.error('MongoDB Error:', error);
@@ -284,7 +379,10 @@ exports.getAllLessonsByUser = async (req, res) => {
   try {
     const userId = req.user.user_id;
     const userIdString = String(userId);
-    // 1. Get user's last program from users collection
+    const mainDb = await getMainDb();
+    const lessonsDb = await getLessonsDb();
+
+    // 1. Get user's programs from users collection
     const user = await mainDb.collection('users').findOne(
       { user_id: userId },
       { projection: { programs: 1 } }
@@ -295,173 +393,111 @@ exports.getAllLessonsByUser = async (req, res) => {
       return res.json([]);
     }
 
-    const lastProgramId = user.programs[user.programs.length - 1];
-    console.log('[LESSON] Last program ID:', lastProgramId);
+    const allConsolidatedLessons = [];
 
-    // 2. Get the program's last module and program details
-    const program = await mainDb.collection('programs').findOne(
-      { _id: lastProgramId },
-      { projection: { modules: 1, program_name: 1, title: 1 } }
-    );
+    // 2. Iterate through all programs
+    for (const programId of user.programs) {
+      console.log('[LESSON] Processing program:', programId);
 
-    if (!program?.modules?.length) {
-      console.log('[LESSON] No modules found in program');
-      return res.json([]);
-    }
+      const program = await mainDb.collection('programs').findOne(
+        { _id: toObjectId(programId) },
+        { projection: { modules: 1, program_name: 1, title: 1 } }
+      );
 
-    const lastModuleId = program.modules[program.modules.length - 1];
-    const programName = program.program_name || program.title; // Use either name or title field
+      if (!program?.modules?.length) continue;
 
-    // Get module details including name
-    const moduleDetails = await mainDb.collection('modules').findOne(
-      { _id: lastModuleId },
-      { projection: { module_name: 1, title: 1 } }
-    );
-    const moduleName = moduleDetails?.module_name || moduleDetails?.title;
-    console.log('[LESSON] module name:', moduleName);
-    console.log('[LESSON] program name:', programName);
-    // 3. Get all lessons from the module with their details
-    const module = await mainDb.collection('modules').findOne(
-      { _id: lastModuleId },
-      { projection: { lessons: 1 } }
-    );
+      const programName = program.program_name || program.title;
 
-    if (!module?.lessons?.length) {
-      console.log('[LESSON] No lessons found in module');
-      return res.json([]);
-    }
+      // Use registration to find the active module, fallback to the first module
+      const registration = await mainDb.collection('program_registrations').findOne({
+        user_id: userId,
+        program_id: toObjectId(programId)
+      });
 
-    // Get full lesson details including lesson_data
-    const moduleLessons = await mainDb.collection('lessons')
-      .find({ _id: { $in: module.lessons } })
-      .toArray();
+      const activeModuleId = (registration?.progress?.current_module)
+        ? toObjectId(registration.progress.current_module)
+        : toObjectId(program.modules[0]);
 
-    if (!moduleLessons.length) {
-      console.log('[LESSON] No lesson details found');
-      return res.json([]);
-    }
+      if (!activeModuleId) continue;
 
-    // Filter lessons based on access permissions using the new access checker
-    const accessibleLessons = [];
-    for (const lesson of moduleLessons) {
-      const checker = accessCheck(lesson.access);
-      if (await checker.check(req.user)) {
-        accessibleLessons.push(lesson);
-      }
-    }
+      const moduleDetails = await mainDb.collection('modules').findOne(
+        { _id: activeModuleId },
+        { projection: { module_name: 1, title: 1, lessons: 1 } }
+      );
 
-    console.log(`[LESSON] Found ${moduleLessons.length} lessons in module, ${accessibleLessons.length} accessible to user`);
+      if (!moduleDetails?.lessons?.length) continue;
 
-    const lessonDataObjectIds = accessibleLessons
-      .filter(lesson => lesson.lesson_data)
-      .map(lesson => toObjectId(lesson.lesson_data))
-      .filter(id => id !== null);  // Filter out any failed conversions
+      const moduleName = moduleDetails.module_name || moduleDetails.title;
 
-    // Get the lessons from ast_lessons to get their proper IDs
-    const astLessons = await lessonsDb.collection('lessons')
-      .find({ _id: { $in: lessonDataObjectIds } })
-      .toArray();
+      // 3. Get all lessons from the module
+      const moduleLessons = await mainDb.collection('lessons')
+        .find({ _id: { $in: moduleDetails.lessons } })
+        .toArray();
 
-    if (!astLessons.length) {
-      console.log('[LESSON] No matching lessons found in ast_lessons database');
-      return res.json([]);
-    }
+      // Use moduleLessons directly (no access check needed once registered for program)
+      const accessibleLessons = moduleLessons;
+      if (accessibleLessons.length === 0) continue;
 
-    // 4. Get existing interactions from ast_lessons database using lesson ids
-    const lessonIds = astLessons.map(l => l.id);
+      const lessonDataObjectIds = accessibleLessons
+        .filter(lesson => lesson.lesson_data)
+        .map(lesson => toObjectId(lesson.lesson_data))
+        .filter(id => id !== null);
 
-    // Try to find interactions using lessonId
-    const interactions = await lessonsDb.collection('interactions')
-      .find({
-        userId: userIdString,
-        lessonId: { $in: lessonIds }  // Use the id field from ast_lessons to match with lessonId
-      })
-      .sort({ lastUpdated: -1 })
-      .toArray();
+      // Get ast_lessons details
+      const astLessons = await lessonsDb.collection('lessons')
+        .find({ _id: { $in: lessonDataObjectIds } })
+        .toArray();
 
-    console.log(`[LESSON] Found ${interactions.length} existing interactions`);
+      const lessonIds = astLessons.map(l => l.id);
 
-    // Strip componentsState from interactions
-    const strippedInteractions = interactions.map(({ componentsState, ...rest }) => rest);
+      // Get interactions
+      const interactions = await lessonsDb.collection('interactions')
+        .find({
+          userId: userIdString,
+          lessonId: { $in: lessonIds }
+        })
+        .toArray();
 
-    // 5. Find lessons that don't have interactions yet
-    const interactedLessonIds = new Set(interactions.map(i => i.lessonId));
+      const interactedLessonIds = new Set(interactions.map(i => i.lessonId));
+      const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id]));
 
-    // Create a map of lesson_data ObjectId to ast_lessons id for comparison
-    const lessonDataToAstId = new Map(
-      astLessons.map(l => [l._id.toString(), l.id])
-    );
+      // Format lessons
+      for (const lesson of accessibleLessons) {
+        const astLesson = astLessons.find(l => l._id.toString() === lesson.lesson_data?.toString());
+        if (!astLesson) continue;
 
-    const newLessons = accessibleLessons.filter(lesson =>
-      lesson.lesson_data && !interactedLessonIds.has(lessonDataToAstId.get(lesson.lesson_data.toString()))
-    );
+        const interaction = interactions.find(i => i.lessonId === astLesson.id);
 
-    console.log(`[LESSON] Found ${newLessons.length} new lessons`);
-
-    if (newLessons.length > 0) {
-      // Add new:true flag to new lessons and format them
-      const formattedNewLessons = newLessons.map(lesson => {
-        const astLesson = astLessons.find(l => l._id.toString() === lesson.lesson_data.toString());
-        if (!astLesson) {
-          console.log('[LESSON] Warning: No matching ast_lesson found for lesson:', lesson._id);
-          return null;
-        }
-        return {
+        allConsolidatedLessons.push({
           ...lesson,
-          new: true,
-          lessonId: astLesson.id // Use the id field from ast_lessons
-        };
-      }).filter(Boolean); // Remove any null entries
-
-      // Add program and module info to all lessons
-      const formattedNewLessonsWithInfo = formattedNewLessons.map(lesson => ({
-        ...lesson,
-        program: programName,
-        module: moduleName
-      }));
-
-      const strippedInteractionsWithInfo = strippedInteractions.map(interaction => ({
-        ...interaction,
-        program: programName,
-        module: moduleName
-      }));
-
-      // Combine interactions with new lessons
-      const allLessons = [...strippedInteractionsWithInfo, ...formattedNewLessonsWithInfo];
-      console.log(`[LESSON] Returning ${allLessons.length} total lessons (${strippedInteractionsWithInfo.length} in progress, ${formattedNewLessonsWithInfo.length} new)`);
-
-      // Store lessons in Redis cache with user-specific key and 1-hour expiration
-      const cacheKey = `user:${userIdString}:lessons`;
-      try {
-        await redis.setex(cacheKey, 3600000, JSON.stringify(allLessons)); // Cache for 1 hour
-        console.log('[LESSON] Successfully cached lessons for user:', userIdString);
-      } catch (redisError) {
-        console.error('[LESSON] Redis caching error:', redisError);
-        // Continue even if caching fails
+          lessonId: astLesson.id,
+          program: programName,
+          module: moduleName,
+          progress: interaction?.lessonState?.progress || 0,
+          lastUpdated: interaction?.lastUpdated || null,
+          status: interaction?.lessonState?.progress === 100 ? 'COMPLETED' : (interaction ? 'IN_PROGRESS' : 'NEW')
+        });
       }
-
-      res.json(allLessons);
-    } else {
-      // Add program and module info to interactions
-      const lessonsWithInfo = strippedInteractions.map(interaction => ({
-        ...interaction,
-        program: programName,
-        module: moduleName
-      }));
-      console.log(`[LESSON] Returning ${lessonsWithInfo.length} lessons (all in progress)`);
-
-      // Store lessons in Redis cache with user-specific key and 1-hour expiration
-      const cacheKey = `user:${userIdString}:lessons`;
-      try {
-        await redis.setex(cacheKey, 3600000, JSON.stringify(lessonsWithInfo)); // Cache for 1 hour
-        console.log('[LESSON] Successfully cached lessons for user:', userIdString);
-      } catch (redisError) {
-        console.error('[LESSON] Redis caching error:', redisError);
-        // Continue even if caching fails
-      }
-
-      res.json(lessonsWithInfo);
     }
+
+    // Sort by last activity (updatedAt descending)
+    allConsolidatedLessons.sort((a, b) => {
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    console.log(`[LESSON] Returning ${allConsolidatedLessons.length} consolidated lessons from ${user.programs.length} programs`);
+
+    // Cache results
+    if (redis) {
+      const cacheKey = `user:${userIdString}:lessons`;
+      try {
+        await redis.setex(cacheKey, 3600, JSON.stringify(allConsolidatedLessons));
+      } catch (err) { }
+    }
+
+    res.json(allConsolidatedLessons);
   } catch (error) {
     console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
@@ -477,28 +513,27 @@ exports.getCachedLessonsByUser = async (req, res) => {
     const userId = req.user.user_id;
     const userIdString = String(userId);
 
-    // Check Redis cache
-    const cacheKey = `user:${userIdString}:lessons`;
-    try {
-      const cachedLessons = await redis.get(cacheKey);
-      if (cachedLessons) {
-        console.log('[LESSON] Returning cached lessons for user:', userIdString);
-        return res.json(JSON.parse(cachedLessons));
+    // Check Redis cache if available
+    if (redis) {
+      const cacheKey = `user:${userIdString}:lessons`;
+      try {
+        const cachedLessons = await redis.get(cacheKey);
+        if (cachedLessons) {
+          console.log('[LESSON] Returning cached lessons for user:', userIdString);
+          return res.json(JSON.parse(cachedLessons));
+        }
+      } catch (redisError) {
+        console.error('[LESSON] Redis error:', redisError);
+        // Fall back to empty result if redis fails
       }
-
-      // If no cached data found
-      console.log('[LESSON] No cached lessons found for user:', userIdString);
-      return res.json([]);
-
-    } catch (redisError) {
-      console.error('[LESSON] Redis error:', redisError);
-      return res.status(500).json({
-        error: 'Failed to retrieve cached lessons',
-        details: redisError.message
-      });
     }
+
+    // If no cached data found or redis disabled
+    console.log('[LESSON] No cached lessons found for user:', userIdString);
+    return res.json([]);
+
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in getCachedLessonsByUser:', error);
     res.status(500).json({ error: error.message });
   }
 };

@@ -591,3 +591,391 @@ exports.deleteLesson = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+// Get list of unique students across tutor's programs
+exports.getStudioStudents = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const user_id = req.user.user_id;
+
+        // 1. Get tutor's programs
+        const myPrograms = await db.collection('programs').find({ tutor_id: user_id }).toArray();
+        const programIds = myPrograms.map(p => p._id);
+
+        // 2. Get all registrations
+        const registrations = await db.collection('program_registrations')
+            .find({ program_id: { $in: programIds } })
+            .toArray();
+
+        // 3. Get student details
+        const uniqueStudentIds = [...new Set(registrations.map(r => r.user_id))];
+        const students = await db.collection('users')
+            .find({ user_id: { $in: uniqueStudentIds } })
+            .project({ fullName: 1, email: 1, user_id: 1, avatar: 1 })
+            .toArray();
+
+        // 4. Map students to their registrations
+        const enrichedStudents = students.map(student => {
+            const studentRegs = registrations.filter(r => r.user_id === student.user_id);
+            const myEnrolledPrograms = studentRegs.map(reg => {
+                const prog = myPrograms.find(p => p._id.toString() === reg.program_id.toString());
+                return {
+                    program_id: reg.program_id,
+                    program_name: prog?.program_name || prog?.name || 'Unknown',
+                    registered_at: reg.registered_at,
+                    progress: reg.progress || {}
+                };
+            });
+
+            return {
+                ...student,
+                enrolledPrograms: myEnrolledPrograms,
+                totalProgress: myEnrolledPrograms.length > 0
+                    ? Math.round(myEnrolledPrograms.reduce((acc, p) => acc + (p.progress.percent_complete || 0), 0) / myEnrolledPrograms.length)
+                    : 0
+            };
+        });
+
+        res.json(enrichedStudents);
+    } catch (error) {
+        console.error('Error fetching studio students:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get detailed info for a specific student in the tutor's sector
+exports.getStudioStudentDetail = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const tutor_id = req.user.user_id;
+        const student_id = req.params.id;
+
+        // 1. Get tutor's programs
+        const myPrograms = await db.collection('programs').find({ tutor_id: tutor_id }).toArray();
+        const programIds = myPrograms.map(p => p._id);
+
+        // 2. Get student profile
+        const student = await db.collection('users').findOne({ user_id: student_id }, { projection: { fullName: 1, email: 1, user_id: 1, avatar: 1 } });
+
+        if (!student) {
+            return res.status(404).json({ error: 'Agent not found in sector' });
+        }
+
+        // 3. Get student's registrations for tutor's programs
+        const registrations = await db.collection('program_registrations')
+            .find({
+                user_id: student_id,
+                program_id: { $in: programIds }
+            })
+            .toArray();
+
+        // 4. Enrich registrations with program names and metadata
+        const enrichedRegistrations = registrations.map(reg => {
+            const prog = myPrograms.find(p => p._id.toString() === reg.program_id.toString());
+            return {
+                ...reg,
+                program_name: prog?.program_name || prog?.name || 'Unknown',
+                description: prog?.description,
+                moduleCount: prog?.modules?.length || 0
+            };
+        });
+
+        res.json({
+            ...student,
+            registrations: enrichedRegistrations,
+            sectorSummary: {
+                totalEnrolled: enrichedRegistrations.length,
+                averageProgress: enrichedRegistrations.length > 0
+                    ? Math.round(enrichedRegistrations.reduce((acc, r) => acc + (r.progress?.percent_complete || 0), 0) / enrichedRegistrations.length)
+                    : 0
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching student detail:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get granular breakdown of a specific student's work in a specific program
+exports.getStudioStudentProgramBreakdown = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const tutor_id = req.user.user_id;
+        const student_id = req.params.id;
+        const program_id = req.params.programId;
+
+        // 1. Verify program belongs to tutor
+        const program = await db.collection('programs').findOne({
+            _id: toObjectId(program_id),
+            tutor_id: tutor_id
+        });
+
+        if (!program) {
+            return res.status(404).json({ error: 'Program not found or access denied' });
+        }
+
+        // 2. Get student profile
+        const student = await db.collection('users').findOne(
+            { user_id: student_id },
+            { projection: { fullName: 1, email: 1, avatar: 1 } }
+        );
+
+        // 3. Get registration data
+        const registration = await db.collection('program_registrations').findOne({
+            user_id: student_id,
+            program_id: toObjectId(program_id)
+        });
+
+        if (!registration) {
+            return res.status(404).json({ error: 'Agent not registered for this program' });
+        }
+
+        // 4. Get all modules and lessons for this program
+        const moduleIds = (program.modules || []).map(id => toObjectId(id));
+        const modules = await db.collection('modules').find({ _id: { $in: moduleIds } }).toArray();
+
+        const allLessonIds = modules.flatMap(m => (m.lessons || []).map(id => toObjectId(id)));
+        const lessons = await db.collection('lessons').find({ _id: { $in: allLessonIds } }).toArray();
+
+        // 5. Get student completions and detailed interactions
+        const lessonsDb = await getLessonsDb();
+
+        // Resolve business IDs for interaction lookup
+        const lessonDataObjectIds = lessons
+            .filter(l => l.lesson_data)
+            .map(l => toObjectId(l.lesson_data));
+
+        const astLessons = await lessonsDb.collection('lessons')
+            .find({ _id: { $in: lessonDataObjectIds } })
+            .project({ _id: 1, id: 1 })
+            .toArray();
+
+        const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id]));
+        const astLessonIds = Array.from(lessonDataToAstId.values());
+
+        const [completions, interactions] = await Promise.all([
+            db.collection('lesson_completions').find({
+                user_id: student_id,
+                lesson_id: { $in: allLessonIds }
+            }).toArray(),
+            lessonsDb.collection('interactions').find({
+                userId: student_id,
+                lessonId: { $in: astLessonIds }
+            }).toArray()
+        ]);
+
+        // 6. Correlate data
+        const sectors = modules.map(mod => {
+            const modLessonIds = (mod.lessons || []).map(id => id.toString());
+            const modLessons = lessons.filter(l => modLessonIds.includes(l._id.toString()));
+
+            const enrichedLessons = modLessons.map(lesson => {
+                const astLessonId = lesson.lesson_data ? lessonDataToAstId.get(lesson.lesson_data.toString()) : null;
+                const completion = completions.find(c => c.lesson_id.toString() === lesson._id.toString());
+                const interaction = interactions.find(i => i.lessonId === astLessonId);
+
+                return {
+                    _id: lesson._id,
+                    title: lesson.title,
+                    type: lesson.type,
+                    status: completion ? 'cleared' : (registration.progress?.current_lesson?.toString() === lesson._id.toString() ? 'active' : 'pending'),
+                    progress: completion ? 100 : (interaction?.lessonState?.progress || 0),
+                    completedAt: completion?.completed_at,
+                    score: completion ? completion.score : (interaction?.lessonState?.score || 0),
+                    timeSpent: completion?.time_spent
+                };
+            });
+
+            const completedCount = enrichedLessons.filter(l => l.status === 'cleared').length;
+            const progress = enrichedLessons.length > 0 ? Math.round((completedCount / enrichedLessons.length) * 100) : 0;
+
+            return {
+                _id: mod._id,
+                name: mod.module_name || mod.title || 'Unknown Sector',
+                progress,
+                lessons: enrichedLessons
+            };
+        });
+
+        // 7. Calculate aggregate stats
+        const totalLessons = allLessonIds.length;
+        const clearedLessons = completions.length;
+        const averageScore = completions.length > 0
+            ? Math.round(completions.filter(c => c.score !== undefined).reduce((acc, c) => acc + c.score, 0) / (completions.filter(c => c.score !== undefined).length || 1))
+            : 0;
+        const totalTimeSpent = completions.reduce((acc, c) => acc + (c.time_spent || 0), 0);
+
+        res.json({
+            student,
+            program: {
+                _id: program._id,
+                name: program.program_name || program.name,
+                description: program.description
+            },
+            registration: {
+                registeredAt: registration.registered_at,
+                lastActivity: registration.last_activity,
+                overallProgress: registration.progress?.percent_complete || 0
+            },
+            stats: {
+                clearedLessons,
+                totalLessons,
+                averageScore,
+                totalTimeSpent,
+                velocity: totalLessons > 0 ? Math.round((clearedLessons / totalLessons) * 100) : 0
+            },
+            sectors,
+            timeline: completions.sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at)).slice(0, 10).map(c => {
+                const lesson = lessons.find(l => l._id.toString() === c.lesson_id.toString());
+                return {
+                    lessonTitle: lesson?.title || 'Unknown Sector',
+                    completedAt: c.completed_at,
+                    score: c.score
+                };
+            })
+        });
+    } catch (error) {
+        console.error('Error fetching student program breakdown:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ===========================
+// ANALYTICS & ACTIVITY
+// ===========================
+
+// Get aggregated stats for tutor
+exports.getStudioStats = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const user_id = req.user.user_id;
+
+        // 1. Get tutor's programs
+        const myPrograms = await db.collection('programs').find({ tutor_id: user_id }).toArray();
+        const programIds = myPrograms.map(p => p._id);
+
+        // 2. Count total students across all these programs
+        const registrations = await db.collection('program_registrations')
+            .find({ program_id: { $in: programIds } })
+            .toArray();
+
+        const uniqueStudentIds = [...new Set(registrations.map(r => r.user_id))];
+
+        // 3. Count total lessons (metadata) across all tutor's programs
+        // This requires joining with modules
+        const moduleIds = myPrograms.flatMap(p => p.modules || []);
+        const totalLessons = await db.collection('lessons').countDocuments({
+            module_id: { $in: moduleIds.map(id => toObjectId(id)) }
+        });
+
+        res.json({
+            totalPrograms: myPrograms.length,
+            activeLearners: uniqueStudentIds.length,
+            totalLessons,
+            engagementRate: 85 // Fixed for now until we have real engagement tracking
+        });
+    } catch (error) {
+        console.error('Error fetching studio stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get recent activity across tutor's programs
+exports.getStudioActivity = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const lessonsDb = await getLessonsDb();
+        const user_id = req.user.user_id;
+
+        // 1. Get tutor's programs and their lessons
+        const myPrograms = await db.collection('programs').find({ tutor_id: user_id }).toArray();
+        const programIds = myPrograms.map(p => p._id);
+
+        const modules = await db.collection('modules').find({
+            $or: [
+                { program_id: { $in: programIds } },
+                { _id: { $in: myPrograms.flatMap(p => (p.modules || []).map(id => toObjectId(id))) } }
+            ]
+        }).toArray();
+
+        const lessons = await db.collection('lessons').find({
+            module_id: { $in: modules.map(m => m._id) }
+        }).toArray();
+
+        const lessonIds = lessons.map(l => l._id);
+
+        // Resolve business IDs from ast_lessons for interaction lookup
+        const lessonDataObjectIds = lessons
+            .filter(l => l.lesson_data)
+            .map(l => toObjectId(l.lesson_data));
+
+        const astLessons = await lessonsDb.collection('lessons')
+            .find({ _id: { $in: lessonDataObjectIds } })
+            .project({ _id: 1, id: 1 })
+            .toArray();
+
+        const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id]));
+        const astLessonIds = Array.from(lessonDataToAstId.values());
+
+        // 2. Fetch parallel activity sources
+        const [registrations, completions, interactions] = await Promise.all([
+            db.collection('program_registrations').find({ program_id: { $in: programIds } }).sort({ registered_at: -1 }).limit(10).toArray(),
+            db.collection('lesson_completions').find({ lesson_id: { $in: lessonIds } }).sort({ completed_at: -1 }).limit(10).toArray(),
+            lessonsDb.collection('interactions').find({ lessonId: { $in: astLessonIds } }).sort({ lastUpdated: -1 }).limit(10).toArray()
+        ]);
+
+        // 3. Map and unify
+        const activityRaw = [
+            ...registrations.map(r => ({
+                time: r.registered_at,
+                type: 'registration',
+                user_id: r.user_id,
+                meta: { program_id: r.program_id }
+            })),
+            ...completions.map(c => ({
+                time: c.completed_at,
+                type: 'completion',
+                user_id: c.user_id,
+                meta: { lesson_id: c.lesson_id }
+            })),
+            ...interactions.map(i => ({
+                time: i.lastUpdated,
+                type: 'interaction',
+                user_id: i.userId,
+                meta: { lessonId: i.lessonId, progress: i.lessonState?.progress }
+            }))
+        ];
+
+        // 4. Sort and Enrich
+        activityRaw.sort((a, b) => new Date(b.time) - new Date(a.time));
+        const limitedActivity = activityRaw.slice(0, 15);
+
+        const enrichedActivity = await Promise.all(limitedActivity.map(async (act) => {
+            const student = await db.collection('users').findOne({ user_id: act.user_id }, { projection: { fullName: 1, email: 1 } });
+            let action = 'System process detected';
+
+            if (act.type === 'registration') {
+                const program = myPrograms.find(p => p._id.toString() === act.meta.program_id.toString());
+                action = `Deployed into ${program?.program_name || 'Directive'}`;
+            } else if (act.type === 'completion') {
+                const lesson = lessons.find(l => l._id.toString() === act.meta.lesson_id.toString());
+                action = `Synchronized sector data: ${lesson?.title || 'Sector'}`;
+            } else if (act.type === 'interaction') {
+                const lesson = lessons.find(l => l.lesson_data?.toString() === act.meta.lessonId);
+                action = `Active in ${lesson?.title || 'Sector'} (${act.meta.progress || 0}%)`;
+            }
+
+            return {
+                ...act,
+                user: student?.fullName || student?.email || 'Unknown Agent',
+                action,
+                type: act.type
+            };
+        }));
+
+        res.json(enrichedActivity);
+    } catch (error) {
+        console.error('Error fetching studio activity:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

@@ -10,6 +10,7 @@ router.get('/:programId', programController.getProgramDetails);
 // Student routes
 router.get('/my/programs', authorize, authorizeRole('student'), programController.getMyPrograms);
 router.get('/my/programs/:programId/progress', authorize, authorizeRole('student'), programController.getMyProgramProgress);
-router.post('/:programId/register', authorize, authorizeRole('student'), programController.registerForProgram);
+router.post('/:programId/register', authorize, programController.registerForProgram);
+router.delete('/:programId/unregister', authorize, programController.unregisterFromProgram);
 
 module.exports = router;

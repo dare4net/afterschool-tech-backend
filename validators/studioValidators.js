@@ -38,14 +38,19 @@ const updateModuleSchema = z.object({
 });
 
 // Lesson Validators
+const slideSchema = z.object({
+    id: z.string(),
+    title: z.string().optional(),
+    status: z.string().optional(),
+    state: z.string().optional(),
+    components: z.array(z.any()).optional(),
+}).passthrough();
+
 const createLessonSchema = z.object({
     title: z.string().min(3, 'Lesson title must be at least 3 characters'),
     description: z.string().optional(),
     order: z.number().int().min(0).optional(),
-    slides: z.array(z.object({
-        id: z.string(),
-        components: z.array(z.any())
-    })),
+    slides: z.array(slideSchema),
     settings: z.object({}).passthrough().optional(),
 });
 
@@ -53,10 +58,7 @@ const updateLessonSchema = z.object({
     title: z.string().min(3).optional(),
     description: z.string().optional(),
     order: z.number().int().min(0).optional(),
-    slides: z.array(z.object({
-        id: z.string(),
-        components: z.array(z.any())
-    })).optional(),
+    slides: z.array(slideSchema).optional(),
     settings: z.object({}).passthrough().optional(),
 });
 

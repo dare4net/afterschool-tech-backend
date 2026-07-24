@@ -52,9 +52,9 @@ async function fetchProgramDetails(programId) {
 exports.getProgramDetails = async (req, res) => {
   try {
     const { programId } = req.params;
-    
+
     const program = await fetchProgramDetails(programId);
-    
+
     if (!program) {
       return res.status(404).json({ message: 'Program not found' });
     }
@@ -74,7 +74,7 @@ exports.registerForProgram = async (req, res) => {
     const programObjectId = toObjectId(programId);
 
     // Verify program exists
-    const program = await db.collection('programs').findOne({ 
+    const program = await db.collection('programs').findOne({
       _id: programObjectId
     });
 
@@ -100,7 +100,7 @@ exports.registerForProgram = async (req, res) => {
       progress: {
         completed_modules: [],
         completed_milestones: [],
-        current_module: null
+        current_module: program.modules && program.modules.length > 0 ? toObjectId(program.modules[0]) : null
       },
       registered_at: new Date(),
       last_activity: new Date()
@@ -116,14 +116,14 @@ exports.registerForProgram = async (req, res) => {
         // Update user's programs array
         await db.collection('users').updateOne(
           { user_id: userId },
-          { 
+          {
             $addToSet: { programs: programObjectId } // $addToSet ensures no duplicates
           },
           { session }
         );
       });
 
-      res.status(201).json({ 
+      res.status(201).json({
         message: 'Successfully registered for program',
         registration_id: registration._id
       });
@@ -141,7 +141,7 @@ exports.registerForProgram = async (req, res) => {
 exports.listPrograms = async (req, res) => {
   try {
     const { search, sort = 'created_at' } = req.query;
-    
+
     let query = {};
     if (search) {
       query = {
@@ -197,7 +197,7 @@ exports.getMyPrograms = async (req, res) => {
 
     // Combine program data with registration details
     const myPrograms = programs.map(program => {
-      const registration = registrations.find(reg => 
+      const registration = registrations.find(reg =>
         reg.program_id.toString() === program._id.toString()
       );
 
@@ -214,7 +214,7 @@ exports.getMyPrograms = async (req, res) => {
     });
 
     // Sort by registration date, newest first
-    myPrograms.sort((a, b) => 
+    myPrograms.sort((a, b) =>
       (b.registration_date || 0) - (a.registration_date || 0)
     );
 
@@ -230,7 +230,7 @@ exports.getMyProgramProgress = async (req, res) => {
   try {
     const { programId } = req.params;
     const userId = req.user.user_id;
-    
+
     // Find the registration for this program
     const registration = await db.collection('program_registrations').findOne({
       program_id: toObjectId(programId),
@@ -238,8 +238,8 @@ exports.getMyProgramProgress = async (req, res) => {
     });
 
     if (!registration) {
-      return res.status(404).json({ 
-        message: 'No registration found for this program' 
+      return res.status(404).json({
+        message: 'No registration found for this program'
       });
     }
 
@@ -249,7 +249,60 @@ exports.getMyProgramProgress = async (req, res) => {
       status: registration.status,
       last_activity: registration.last_activity
     });
-    
+
+  } catch (error) {
+    console.error('MongoDB Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Unregister/Leave a program (Resets progress)
+exports.unregisterFromProgram = async (req, res) => {
+  try {
+    const { programId } = req.params;
+    const userId = req.user.user_id;
+    const programObjectId = toObjectId(programId);
+
+    if (!programObjectId) {
+      return res.status(400).json({ message: 'Invalid program ID' });
+    }
+
+    // Start a session for transaction
+    const session = client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // 1. Remove from program_registrations
+        await db.collection('program_registrations').deleteOne({
+          program_id: programObjectId,
+          user_id: userId
+        }, { session });
+
+        // 2. Remove from user's programs array
+        await db.collection('users').updateOne(
+          { user_id: userId },
+          { $pull: { programs: programObjectId } },
+          { session }
+        );
+
+        // 3. Reset lesson progress for this program
+        const program = await db.collection('programs').findOne({ _id: programObjectId }, { session });
+        if (program?.modules) {
+          const modules = await db.collection('modules').find({ _id: { $in: program.modules.map(id => toObjectId(id)) } }, { session }).toArray();
+          const lessonIds = modules.flatMap(m => m.lessons || []).map(id => toObjectId(id));
+
+          if (lessonIds.length > 0) {
+            await db.collection('lesson_completions').deleteMany({
+              user_id: userId,
+              lesson_id: { $in: lessonIds }
+            }, { session });
+          }
+        }
+      });
+
+      res.status(200).json({ message: 'Successfully unregistered from program. Progress has been reset.' });
+    } finally {
+      await session.endSession();
+    }
   } catch (error) {
     console.error('MongoDB Error:', error);
     res.status(500).json({ error: error.message });
