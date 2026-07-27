@@ -26,6 +26,8 @@ app.use(cors({
     'https://app.after-school.tech',
     'https://afterschool-tech-beta.vercel.app',
     'https://ast4-lesson-builder-chatzteam-gmailcoms-projects.vercel.app'
+    'https://ast.devinna.com',
+    'https://ast4-lesson-builder.vercel.app'
   ],
   credentials: true,
 }));
