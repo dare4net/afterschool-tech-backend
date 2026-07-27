@@ -182,53 +182,141 @@ exports.markLessonCompleted = async (req, res) => {
   try {
     const { lessonId } = req.params;
     const userId = req.user.user_id;
-    const completion = {
-      user_id: userId,
-      lesson_id: toObjectId(lessonId),
-      completed_at: new Date(),
-      score: req.body.score, // Optional, for quizzes
-      time_spent: req.body.timeSpent // Optional, tracking time spent
-    };
 
     const db = await getMainDb();
+    const lessonsDb = await getLessonsDb();
 
-    // Find the module this lesson belongs to
-    const lesson = await db.collection('lessons').findOne(
-      { _id: toObjectId(lessonId) },
-      { projection: { module_id: 1 } }
-    );
+    // ── Resolve the lesson: the viewer sends the ast_lessons UUID string
+    //    (e.g. "lesson-1719876543210"), not the afterschooltech ObjectId.
+    //    We must resolve it to the actual afterschooltech.lessons document.
+    let lesson = null;
+    const objectId = toObjectId(lessonId);
+
+    // 1. Try direct ObjectId lookup first (in case someone passes a real ObjectId)
+    if (objectId) {
+      lesson = await db.collection('lessons').findOne(
+        { _id: objectId },
+        { projection: { _id: 1, module_id: 1 } }
+      );
+    }
+
+    // 2. If not found, resolve via ast_lessons UUID → lesson_data reference
+    if (!lesson) {
+      // Find the ast_lessons document by its string `id` field
+      const astLesson = await lessonsDb.collection('lessons').findOne(
+        { id: lessonId },
+        { projection: { _id: 1 } }
+      );
+
+      if (astLesson) {
+        // Find the afterschooltech.lessons record that references this ast_lesson
+        lesson = await db.collection('lessons').findOne(
+          { lesson_data: astLesson._id },
+          { projection: { _id: 1, module_id: 1 } }
+        );
+        console.log(`[LESSON] Resolved ast_lessons UUID "${lessonId}" → lessons._id: ${lesson?._id}`);
+      }
+    }
 
     if (!lesson) {
+      console.error(`[LESSON] Could not resolve lesson ID: ${lessonId}`);
       return res.status(404).json({ message: 'Lesson not found' });
     }
 
+    // Build the completion record with the resolved ObjectId
+    const completion = {
+      user_id: userId,
+      lesson_id: lesson._id,
+      completed_at: new Date(),
+      score: req.body.score,
+      time_spent: req.body.timeSpent
+    };
+
     // Start a session for transaction
     const session = client.startSession();
+    let programForProgress = null;
     try {
       await session.withTransaction(async () => {
         // Add to lesson completions
         await db.collection('lesson_completions').insertOne(completion, { session });
 
-        // Find the program registration this module belongs to
-        const regProgram = await db.collection('programs').findOne(
+        // Find the program this module belongs to
+        programForProgress = await db.collection('programs').findOne(
           { modules: lesson.module_id },
-          { projection: { _id: 1 } }
+          { projection: { _id: 1, modules: 1 } }
         );
 
-        if (regProgram) {
+        if (programForProgress) {
           await db.collection('program_registrations').updateOne(
             {
               user_id: userId,
-              program_id: regProgram._id
+              program_id: programForProgress._id
             },
             {
-              $addToSet: { 'progress.completed_lessons': toObjectId(lessonId) },
+              $addToSet: { 'progress.completed_lessons': lesson._id },
               $set: { last_activity: new Date() }
             },
             { session }
           );
         }
       });
+
+      // ─── Post-transaction: recalculate percent_complete ───────────────────
+      if (programForProgress) {
+        try {
+          // 1. Get all module ObjectIds for this program
+          const moduleObjectIds = (programForProgress.modules || [])
+            .map(id => toObjectId(id))
+            .filter(Boolean);
+
+          // 2. Get all lessons across all modules in this program
+          const allProgramLessons = await db.collection('lessons')
+            .find({ module_id: { $in: moduleObjectIds } })
+            .project({ _id: 1, module_id: 1 })
+            .toArray();
+
+          const totalLessons = allProgramLessons.length;
+
+          if (totalLessons > 0) {
+            // 3. Count how many of those lessons this user has completed
+            const completedCount = await db.collection('lesson_completions').countDocuments({
+              user_id: userId,
+              lesson_id: { $in: allProgramLessons.map(l => l._id) }
+            });
+
+            const percentComplete = Math.round((completedCount / totalLessons) * 100);
+
+            // 4. Determine which modules are fully completed
+            const completedLessonIds = (await db.collection('lesson_completions')
+              .find({ user_id: userId, lesson_id: { $in: allProgramLessons.map(l => l._id) } })
+              .project({ lesson_id: 1 })
+              .toArray()).map(c => c.lesson_id.toString());
+
+            const completedModuleIds = moduleObjectIds.filter(modId => {
+              const modLessons = allProgramLessons.filter(l => l.module_id.toString() === modId.toString());
+              return modLessons.length > 0 && modLessons.every(l => completedLessonIds.includes(l._id.toString()));
+            });
+
+            // 5. Write percent_complete and completed_modules back to the registration
+            await db.collection('program_registrations').updateOne(
+              { user_id: userId, program_id: programForProgress._id },
+              {
+                $set: {
+                  'progress.percent_complete': percentComplete,
+                  'progress.completed_modules': completedModuleIds,
+                  last_activity: new Date()
+                }
+              }
+            );
+
+            console.log(`[LESSON] Progress updated: ${completedCount}/${totalLessons} lessons = ${percentComplete}% for program ${programForProgress._id}`);
+          }
+        } catch (progressErr) {
+          // Non-fatal — log and continue, the completion itself was saved
+          console.error('[LESSON] Failed to recalculate progress (non-fatal):', progressErr);
+        }
+      }
+      // ──────────────────────────────────────────────────────────────────────
 
       const response = {
         message: 'Lesson marked as completed',
@@ -321,18 +409,32 @@ exports.getModuleLessons = async (req, res) => {
       return res.json([]);
     }
 
-    // Get the ast_lesson string IDs from lessonsDb
+    // Get the ast_lesson documents from lessonsDb
     const lessonDataObjectIds = lessons
       .filter(l => l.lesson_data)
       .map(l => toObjectId(l.lesson_data))
       .filter(id => id !== null);
 
+    const lessonDataIds = lessons
+      .filter(l => l.lesson_data)
+      .map(l => l.lesson_data.toString());
+
     const astLessons = await lessonsDb.collection('lessons')
-      .find({ _id: { $in: lessonDataObjectIds } })
-      .project({ _id: 1, id: 1 })
+      .find({
+        $or: [
+          { _id: { $in: lessonDataObjectIds } },
+          { id: { $in: lessonDataIds } }
+        ]
+      })
       .toArray();
 
-    const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id]));
+    const astLessonMap = new Map();
+    astLessons.forEach(l => {
+      astLessonMap.set(l._id.toString(), l);
+      if (l.id) astLessonMap.set(l.id, l);
+    });
+
+    const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id || l._id.toString()]));
 
     // Get completion status for these lessons
     const completions = await db.collection('lesson_completions')
@@ -350,9 +452,78 @@ exports.getModuleLessons = async (req, res) => {
 
     // Combine lesson data with completion status and ast ID
     const lessonsWithStatus = lessons.map(lesson => {
-      const astLessonId = lesson.lesson_data ? lessonDataToAstId.get(lesson.lesson_data.toString()) : null;
+      const lessonDataKey = lesson.lesson_data ? lesson.lesson_data.toString() : null;
+      const astDoc = lessonDataKey ? astLessonMap.get(lessonDataKey) : null;
+      const astLessonId = lessonDataKey ? (astDoc?.id || lessonDataToAstId.get(lessonDataKey) || lessonDataKey) : null;
+
       const completion = completions.find(c => c.lesson_id.equals(lesson._id));
       const interaction = interactions.find(i => i.lessonId === astLessonId);
+
+      // Summarize slides, categorized components, and total possible points
+      const slides = astDoc?.slides || lesson.slides || [];
+      const totalSlides = slides.length;
+
+      const categoryCounts = {
+        interactive: 0,
+        gamified: 0,
+        content: 0,
+        media: 0,
+        structure: 0,
+        utility: 0
+      };
+
+      const COMPONENT_CATEGORY_MAP = {
+        paragraph: 'content', heading: 'content', bulletList: 'content', table: 'content', codeBlock: 'content', quote: 'content',
+        divider: 'structure', box: 'structure', callout: 'structure', grid: 'structure', carousel: 'structure', accordion: 'structure', iconBlock: 'structure',
+        image: 'media', video: 'media',
+        quiz: 'interactive', poll: 'interactive', dragDrop: 'interactive', matchingPairs: 'interactive', fillInTheBlank: 'interactive', codeEditor: 'interactive', clickableImage: 'interactive', hotspot: 'interactive',
+        flashcards: 'gamified', badgeReveal: 'gamified', miniGame: 'gamified', progressBar: 'gamified',
+        slideTitle: 'structure', lessonIntro: 'structure', lessonSummary: 'structure', lessonComplete: 'structure',
+        timer: 'utility', audioPlayer: 'utility', languageToggle: 'utility', themeSwitch: 'utility', hint: 'utility', notePad: 'utility'
+      };
+
+      const componentTypesSet = new Set();
+      let calculatedTotalScore = 0;
+
+      slides.forEach(slide => {
+        (slide.components || []).forEach(comp => {
+          if (comp.type) {
+            componentTypesSet.add(comp.type);
+            const cat = COMPONENT_CATEGORY_MAP[comp.type] || 'content';
+            if (categoryCounts[cat] !== undefined) {
+              categoryCounts[cat]++;
+            }
+
+            // Calculate max points matching ScoringService logic
+            const props = comp.props || {};
+            const points = props.points || 0;
+            const mode = props.mode || comp.mode || 'practice';
+
+            if (points > 0) {
+              switch (comp.type) {
+                case 'fillInTheBlank':
+                  const blankCount = props.blanks?.length || (props.text?.match(/\[blank\]/g) || []).length || 1;
+                  calculatedTotalScore += points * blankCount;
+                  break;
+                case 'matchingPairs':
+                  calculatedTotalScore += points * (props.pairs?.length || 1);
+                  break;
+                case 'quiz':
+                  calculatedTotalScore += points * (props.questions?.length || 1);
+                  break;
+                default:
+                  calculatedTotalScore += points;
+                  break;
+              }
+            }
+          }
+        });
+      });
+
+      // Total score prioritizing interaction recorded totalScore, falling back to calculated total
+      const totalScore = (interaction?.lessonState?.totalScore && interaction.lessonState.totalScore > 0)
+        ? interaction.lessonState.totalScore
+        : calculatedTotalScore;
 
       return {
         ...lesson,
@@ -360,7 +531,13 @@ exports.getModuleLessons = async (req, res) => {
         completed: !!completion,
         progress: completion ? 100 : (interaction?.lessonState?.progress || 0),
         completed_at: completion?.completed_at || null,
-        score: completion ? completion.score : (interaction?.lessonState?.score || 0)
+        score: completion ? completion.score : (interaction?.lessonState?.score || 0),
+        totalScore,
+        totalSlides,
+        interactiveCount: categoryCounts.interactive + categoryCounts.gamified,
+        categoryCounts,
+        duration: lesson.duration || astDoc?.duration || 10,
+        componentTypes: Array.from(componentTypesSet)
       };
     });
 

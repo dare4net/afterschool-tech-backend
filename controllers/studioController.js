@@ -791,7 +791,7 @@ exports.getStudioStudentProgramBreakdown = async (req, res) => {
 
             return {
                 _id: mod._id,
-                name: mod.module_name || mod.title || 'Unknown Sector',
+                name: mod.name || mod.module_name || mod.title || 'Module',
                 progress,
                 lessons: enrichedLessons
             };
