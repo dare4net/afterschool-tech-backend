@@ -17,11 +17,17 @@ const loginSchema = z.object({
 const createProgramSchema = z.object({
     name: z.string().min(3, 'Program name must be at least 3 characters'),
     description: z.string().optional(),
+    image_url: z.string().optional(),
+    cover_image: z.string().optional(),
+    is_published: z.boolean().optional(),
 });
 
 const updateProgramSchema = z.object({
     name: z.string().min(3).optional(),
     description: z.string().optional(),
+    image_url: z.string().optional(),
+    cover_image: z.string().optional(),
+    is_published: z.boolean().optional(),
 });
 
 // Module Validators
@@ -29,12 +35,18 @@ const createModuleSchema = z.object({
     name: z.string().min(3, 'Module name must be at least 3 characters'),
     description: z.string().optional(),
     order: z.number().int().min(0).optional(),
+    image_url: z.string().optional(),
+    cover_image: z.string().optional(),
+    is_published: z.boolean().optional(),
 });
 
 const updateModuleSchema = z.object({
     name: z.string().min(3).optional(),
     description: z.string().optional(),
     order: z.number().int().min(0).optional(),
+    image_url: z.string().optional(),
+    cover_image: z.string().optional(),
+    is_published: z.boolean().optional(),
 });
 
 // Lesson Validators

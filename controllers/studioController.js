@@ -58,22 +58,60 @@ exports.getPrograms = async (req, res) => {
             .sort({ created_at: -1 })
             .toArray();
 
-        res.json(programs);
+        const programIds = programs.map(p => p._id);
+
+        // Fetch all modules for these programs
+        const modules = await db.collection('modules')
+            .find({ program_id: { $in: programIds } })
+            .toArray();
+
+        const moduleIds = modules.map(m => m._id);
+
+        // Aggregate lesson counts per module
+        let lessonCountsMap = {};
+        if (moduleIds.length > 0) {
+            const lessonCounts = await db.collection('lessons').aggregate([
+                { $match: { module_id: { $in: moduleIds } } },
+                { $group: { _id: "$module_id", count: { $sum: 1 } } }
+            ]).toArray();
+
+            lessonCounts.forEach(lc => {
+                lessonCountsMap[lc._id.toString()] = lc.count;
+            });
+        }
+
+        // Map modules to their programs
+        const enrichedPrograms = programs.map(program => {
+            const programModules = modules.filter(m => m.program_id.toString() === program._id.toString());
+            const programLessonsCount = programModules.reduce((acc, m) => acc + (lessonCountsMap[m._id.toString()] || 0), 0);
+
+            return {
+                ...program,
+                modules: programModules.map(m => ({
+                    ...m,
+                    lessons_count: lessonCountsMap[m._id.toString()] || 0
+                })),
+                lessons_count: programLessonsCount
+            };
+        });
+
+        res.json(enrichedPrograms);
     } catch (error) {
         console.error('Error fetching programs:', error);
         res.status(500).json({ error: error.message });
     }
 };
 
-// Get single program details
+// Get single program details with enrolled student summary
 exports.getProgram = async (req, res) => {
     try {
         const db = await getMainDb();
         const { id } = req.params;
         const user_id = req.user.user_id;
+        const programObjectId = toObjectId(id);
 
         const program = await db.collection('programs').findOne({
-            _id: toObjectId(id),
+            _id: programObjectId,
             tutor_id: user_id
         });
 
@@ -81,7 +119,50 @@ exports.getProgram = async (req, res) => {
             return res.status(404).json({ error: 'Program not found' });
         }
 
-        res.json(program);
+        // Fetch active student registrations with user profiles
+        const registrations = await db.collection('program_registrations')
+            .find({
+                program_id: programObjectId,
+                status: { $ne: 'unenrolled' }
+            }).toArray();
+
+        // Retrieve actual student names from users collection
+        const studentUserIds = registrations
+            .map(r => r.student_id || r.user_id)
+            .filter(Boolean);
+
+        let studentNamesMap = {};
+        if (studentUserIds.length > 0) {
+            const ObjectIds = studentUserIds.map(id => toObjectId(id)).filter(Boolean);
+            const users = await db.collection('users').find({
+                $or: [
+                    { _id: { $in: ObjectIds } },
+                    { user_id: { $in: studentUserIds } }
+                ]
+            }).toArray();
+
+            users.forEach(u => {
+                const name = u.full_name || u.name ||
+                    (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : null) ||
+                    u.username || u.email;
+                if (name) {
+                    if (u._id) studentNamesMap[u._id.toString()] = name;
+                    if (u.user_id) studentNamesMap[u.user_id.toString()] = name;
+                }
+            });
+        }
+
+        const enrolled_students = registrations.map((r, idx) => {
+            const sid = (r.student_id || r.user_id)?.toString();
+            return (sid && studentNamesMap[sid]) || r.student_name || `Student ${idx + 1}`;
+        });
+        const enrolled_count = enrolled_students.length;
+
+        res.json({
+            ...program,
+            enrolled_count,
+            enrolled_students
+        });
     } catch (error) {
         console.error('Error fetching program:', error);
         res.status(500).json({ error: error.message });
@@ -120,15 +201,16 @@ exports.updateProgram = async (req, res) => {
     }
 };
 
-// Delete program
+// Delete program (Smart Soft/Hard Cascade Delete)
 exports.deleteProgram = async (req, res) => {
     try {
         const db = await getMainDb();
         const { id } = req.params;
         const user_id = req.user.user_id;
 
+        const programObjectId = toObjectId(id);
         const program = await db.collection('programs').findOne({
-            _id: toObjectId(id),
+            _id: programObjectId,
             tutor_id: user_id
         });
 
@@ -136,11 +218,56 @@ exports.deleteProgram = async (req, res) => {
             return res.status(404).json({ error: 'Program not found' });
         }
 
-        // TODO: Also delete associated modules and lessons
+        // Check if students are actively registered for this program
+        const activeRegistrations = await db.collection('program_registrations').countDocuments({
+            program_id: programObjectId,
+            status: { $ne: 'unenrolled' }
+        });
 
-        await db.collection('programs').deleteOne({ _id: toObjectId(id) });
+        if (activeRegistrations > 0) {
+            // Soft delete to protect student records, quiz history, and XP
+            await db.collection('programs').updateOne(
+                { _id: programObjectId },
+                {
+                    $set: {
+                        is_deleted: true,
+                        is_published: false,
+                        deleted_at: new Date(),
+                        updated_at: new Date()
+                    }
+                }
+            );
 
-        res.json({ message: 'Program deleted successfully' });
+            return res.json({
+                message: 'Program archived (Soft Delete applied to protect active student records)',
+                is_soft_deleted: true
+            });
+        }
+
+        // Hard Cascade Delete if no enrolled students exist
+        const modules = await db.collection('modules')
+            .find({ program_id: programObjectId })
+            .toArray();
+
+        const moduleIds = modules.map(m => m._id);
+
+        // Delete all associated lessons across all modules
+        if (moduleIds.length > 0) {
+            await db.collection('lessons').deleteMany({
+                module_id: { $in: moduleIds }
+            });
+        }
+
+        // Delete all modules
+        await db.collection('modules').deleteMany({ program_id: programObjectId });
+
+        // Delete the program document itself
+        await db.collection('programs').deleteOne({ _id: programObjectId });
+
+        res.json({
+            message: 'Program and all associated modules/lessons permanently deleted',
+            is_soft_deleted: false
+        });
     } catch (error) {
         console.error('Error deleting program:', error);
         res.status(500).json({ error: error.message });
@@ -300,14 +427,15 @@ exports.updateModule = async (req, res) => {
     }
 };
 
-// Delete module
+// Delete module (Smart Soft/Hard Cascade Delete)
 exports.deleteModule = async (req, res) => {
     try {
         const db = await getMainDb();
         const { id } = req.params;
         const user_id = req.user.user_id;
 
-        const module = await db.collection('modules').findOne({ _id: toObjectId(id) });
+        const moduleObjectId = toObjectId(id);
+        const module = await db.collection('modules').findOne({ _id: moduleObjectId });
 
         if (!module) {
             return res.status(404).json({ error: 'Module not found' });
@@ -323,17 +451,61 @@ exports.deleteModule = async (req, res) => {
             return res.status(403).json({ error: 'Not authorized' });
         }
 
-        // TODO: Also delete associated lessons
+        // Check if any student progress exists in lessons of this module
+        const moduleLessons = await db.collection('lessons')
+            .find({ module_id: moduleObjectId })
+            .toArray();
 
-        // Remove from program's modules array
+        const lessonIds = moduleLessons.map(l => l._id.toString());
+
+        let hasStudentProgress = false;
+        if (lessonIds.length > 0) {
+            const progressCount = await db.collection('student_progress').countDocuments({
+                lesson_id: { $in: lessonIds }
+            });
+            hasStudentProgress = progressCount > 0;
+        }
+
+        if (hasStudentProgress) {
+            // Soft delete module to protect student progress records
+            await db.collection('modules').updateOne(
+                { _id: moduleObjectId },
+                {
+                    $set: {
+                        is_deleted: true,
+                        is_published: false,
+                        deleted_at: new Date(),
+                        updated_at: new Date()
+                    }
+                }
+            );
+
+            return res.json({
+                message: 'Module archived (Soft Delete applied to protect active student records)',
+                is_soft_deleted: true
+            });
+        }
+
+        // Cascade Hard Delete all lessons in this module
+        if (lessonIds.length > 0) {
+            await db.collection('lessons').deleteMany({
+                module_id: moduleObjectId
+            });
+        }
+
+        // Remove module reference from program's modules array
         await db.collection('programs').updateOne(
             { _id: module.program_id },
-            { $pull: { modules: toObjectId(id) } }
+            { $pull: { modules: moduleObjectId } }
         );
 
-        await db.collection('modules').deleteOne({ _id: toObjectId(id) });
+        // Delete the module document itself
+        await db.collection('modules').deleteOne({ _id: moduleObjectId });
 
-        res.json({ message: 'Module deleted successfully' });
+        res.json({
+            message: 'Module and all associated lessons permanently deleted',
+            is_soft_deleted: false
+        });
     } catch (error) {
         console.error('Error deleting module:', error);
         res.status(500).json({ error: error.message });

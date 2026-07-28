@@ -142,14 +142,16 @@ exports.listPrograms = async (req, res) => {
   try {
     const { search, sort = 'created_at' } = req.query;
 
-    let query = {};
+    let query = {
+      is_deleted: { $ne: true },
+      is_published: { $ne: false }
+    };
+
     if (search) {
-      query = {
-        $or: [
-          { program_name: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } }
-        ]
-      };
+      query.$or = [
+        { program_name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
     }
 
     const sortOptions = {};
