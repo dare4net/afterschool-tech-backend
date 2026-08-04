@@ -786,21 +786,35 @@ exports.getStudioStudents = async (req, res) => {
             .project({ fullName: 1, email: 1, user_id: 1, avatar: 1 })
             .toArray();
 
-        // 4. Map students to their registrations
+        // 4. Map students to their registrations with computed last_activity
         const enrichedStudents = students.map(student => {
             const studentRegs = registrations.filter(r => r.user_id === student.user_id);
+            let latestActivity = null;
+
             const myEnrolledPrograms = studentRegs.map(reg => {
                 const prog = myPrograms.find(p => p._id.toString() === reg.program_id.toString());
+                const regActivity = reg.last_activity || reg.registered_at;
+                if (regActivity) {
+                    const regDate = new Date(regActivity);
+                    if (!latestActivity || regDate > new Date(latestActivity)) {
+                        latestActivity = regActivity;
+                    }
+                }
+
                 return {
                     program_id: reg.program_id,
                     program_name: prog?.program_name || prog?.name || 'Unknown',
                     registered_at: reg.registered_at,
+                    last_activity: reg.last_activity,
+                    lastActivity: reg.last_activity,
                     progress: reg.progress || {}
                 };
             });
 
             return {
                 ...student,
+                last_activity: latestActivity,
+                lastActivity: latestActivity,
                 enrolledPrograms: myEnrolledPrograms,
                 totalProgress: myEnrolledPrograms.length > 0
                     ? Math.round(myEnrolledPrograms.reduce((acc, p) => acc + (p.progress.percent_complete || 0), 0) / myEnrolledPrograms.length)
@@ -841,19 +855,33 @@ exports.getStudioStudentDetail = async (req, res) => {
             })
             .toArray();
 
+        let latestActivity = null;
+
         // 4. Enrich registrations with program names and metadata
         const enrichedRegistrations = registrations.map(reg => {
             const prog = myPrograms.find(p => p._id.toString() === reg.program_id.toString());
+            const regActivity = reg.last_activity || reg.registered_at;
+            if (regActivity) {
+                const regDate = new Date(regActivity);
+                if (!latestActivity || regDate > new Date(latestActivity)) {
+                    latestActivity = regActivity;
+                }
+            }
+
             return {
                 ...reg,
                 program_name: prog?.program_name || prog?.name || 'Unknown',
                 description: prog?.description,
-                moduleCount: prog?.modules?.length || 0
+                moduleCount: prog?.modules?.length || 0,
+                lastActivity: reg.last_activity,
+                last_activity: reg.last_activity
             };
         });
 
         res.json({
             ...student,
+            last_activity: latestActivity,
+            lastActivity: latestActivity,
             registrations: enrichedRegistrations,
             sectorSummary: {
                 totalEnrolled: enrichedRegistrations.length,
