@@ -547,6 +547,7 @@ exports.createLesson = async (req, res) => {
             title,
             slides: slides || [],
             settings: settings || {},
+            introAudioUrl: req.body.introAudioUrl || null,
             created_at: new Date(),
             updated_at: new Date()
         };
@@ -701,11 +702,12 @@ exports.updateLesson = async (req, res) => {
         );
 
         // Update content if provided
-        if (slides || settings || title) {
+        if (slides || settings || title || req.body.introAudioUrl !== undefined) {
             const contentUpdate = { updated_at: new Date() };
             if (title) contentUpdate.title = title;
             if (slides) contentUpdate.slides = slides;
             if (settings) contentUpdate.settings = settings;
+            if (req.body.introAudioUrl !== undefined) contentUpdate.introAudioUrl = req.body.introAudioUrl;
 
             await lessonsDb.collection('lessons').updateOne(
                 { _id: lesson.lesson_data },
