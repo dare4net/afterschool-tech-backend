@@ -20,6 +20,7 @@ const createProgramSchema = z.object({
     image_url: z.string().optional(),
     cover_image: z.string().optional(),
     is_published: z.boolean().optional(),
+    default_voice: z.string().optional(),
 });
 
 const updateProgramSchema = z.object({
@@ -28,6 +29,7 @@ const updateProgramSchema = z.object({
     image_url: z.string().optional(),
     cover_image: z.string().optional(),
     is_published: z.boolean().optional(),
+    default_voice: z.string().optional(),
 });
 
 // Module Validators
@@ -38,6 +40,7 @@ const createModuleSchema = z.object({
     image_url: z.string().optional(),
     cover_image: z.string().optional(),
     is_published: z.boolean().optional(),
+    default_voice: z.string().optional(),
 });
 
 const updateModuleSchema = z.object({
@@ -47,6 +50,7 @@ const updateModuleSchema = z.object({
     image_url: z.string().optional(),
     cover_image: z.string().optional(),
     is_published: z.boolean().optional(),
+    default_voice: z.string().optional(),
 });
 
 // Lesson Validators
@@ -64,6 +68,8 @@ const createLessonSchema = z.object({
     order: z.number().int().min(0).optional(),
     slides: z.array(slideSchema),
     settings: z.object({}).passthrough().optional(),
+    voice: z.string().optional(),
+    introAudioUrl: z.string().nullable().optional(),
 });
 
 const updateLessonSchema = z.object({
@@ -72,6 +78,8 @@ const updateLessonSchema = z.object({
     order: z.number().int().min(0).optional(),
     slides: z.array(slideSchema).optional(),
     settings: z.object({}).passthrough().optional(),
+    voice: z.string().optional(),
+    introAudioUrl: z.string().nullable().optional(),
 });
 
 // Validation middleware factory

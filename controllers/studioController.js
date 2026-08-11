@@ -21,12 +21,13 @@ exports.createProgram = async (req, res) => {
         const db = await getMainDb();
         const user_id = req.user.user_id;
 
-        const { name, description } = req.validatedBody;
+        const { name, description, default_voice } = req.validatedBody;
 
         const program = {
             tutor_id: user_id,
             name,
             description: description || '',
+            default_voice: default_voice || 'en-GB-SoniaNeural',
             modules: [],
             created_at: new Date(),
             updated_at: new Date()
@@ -284,7 +285,7 @@ exports.createModule = async (req, res) => {
         const db = await getMainDb();
         const { programId } = req.params;
         const user_id = req.user.user_id;
-        const { name, description, order } = req.validatedBody;
+        const { name, description, order, default_voice } = req.validatedBody;
 
         // Verify program ownership
         const program = await db.collection('programs').findOne({
@@ -300,6 +301,7 @@ exports.createModule = async (req, res) => {
             program_id: toObjectId(programId),
             name,
             description: description || '',
+            default_voice: default_voice || 'inherit',
             order: order || program.modules.length,
             lessons: [],
             created_at: new Date(),
