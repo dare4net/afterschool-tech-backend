@@ -1,6 +1,7 @@
 const { ObjectId } = require('mongodb');
 const { getMainDb, getLessonsDb } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../helpers/cloudinaryHelper');
 
 // Helper to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -53,9 +54,11 @@ exports.getPrograms = async (req, res) => {
     try {
         const db = await getMainDb();
         const user_id = req.user.user_id;
+        const userObjId = toObjectId(user_id);
+        const tutorQuery = userObjId ? { $in: [user_id, userObjId] } : user_id;
 
         const programs = await db.collection('programs')
-            .find({ tutor_id: user_id })
+            .find({ tutor_id: tutorQuery })
             .sort({ created_at: -1 })
             .toArray();
 
@@ -188,6 +191,19 @@ exports.updateProgram = async (req, res) => {
             return res.status(404).json({ error: 'Program not found' });
         }
 
+        // Handle thumbnail upload to Cloudinary & previous image deletion
+        const oldImage = program.image_url || program.cover_image;
+        if (updateData.image_url) {
+            if (updateData.image_url.startsWith('data:image/')) {
+                updateData.image_url = await uploadToCloudinary(updateData.image_url, 'ast_thumbnails', `program_${id}`);
+            }
+            if (oldImage && oldImage !== updateData.image_url && oldImage.includes('res.cloudinary.com')) {
+                await deleteFromCloudinary(oldImage);
+            }
+        } else if (updateData.image_url === '' && oldImage && oldImage.includes('res.cloudinary.com')) {
+            await deleteFromCloudinary(oldImage);
+        }
+
         updateData.updated_at = new Date();
 
         await db.collection('programs').updateOne(
@@ -262,7 +278,10 @@ exports.deleteProgram = async (req, res) => {
         // Delete all modules
         await db.collection('modules').deleteMany({ program_id: programObjectId });
 
-        // Delete the program document itself
+        // Delete the program document itself & its Cloudinary image if present
+        if (program.image_url || program.cover_image) {
+            await deleteFromCloudinary(program.image_url || program.cover_image);
+        }
         await db.collection('programs').deleteOne({ _id: programObjectId });
 
         res.json({
@@ -415,6 +434,19 @@ exports.updateModule = async (req, res) => {
             return res.status(403).json({ error: 'Not authorized' });
         }
 
+        // Handle thumbnail upload to Cloudinary & previous image deletion
+        const oldImage = module.image_url || module.cover_image;
+        if (updateData.image_url) {
+            if (updateData.image_url.startsWith('data:image/')) {
+                updateData.image_url = await uploadToCloudinary(updateData.image_url, 'ast_thumbnails', `module_${id}`);
+            }
+            if (oldImage && oldImage !== updateData.image_url && oldImage.includes('res.cloudinary.com')) {
+                await deleteFromCloudinary(oldImage);
+            }
+        } else if (updateData.image_url === '' && oldImage && oldImage.includes('res.cloudinary.com')) {
+            await deleteFromCloudinary(oldImage);
+        }
+
         updateData.updated_at = new Date();
 
         await db.collection('modules').updateOne(
@@ -501,7 +533,10 @@ exports.deleteModule = async (req, res) => {
             { $pull: { modules: moduleObjectId } }
         );
 
-        // Delete the module document itself
+        // Delete the module document itself & its Cloudinary image if present
+        if (module.image_url || module.cover_image) {
+            await deleteFromCloudinary(module.image_url || module.cover_image);
+        }
         await db.collection('modules').deleteOne({ _id: moduleObjectId });
 
         res.json({
