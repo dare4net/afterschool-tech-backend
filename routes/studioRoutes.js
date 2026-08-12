@@ -25,6 +25,8 @@ router.get('/activity', studioController.getStudioActivity);
 router.get('/students', studioController.getStudioStudents);
 router.get('/students/:id', studioController.getStudioStudentDetail);
 router.get('/students/:id/programs/:programId', studioController.getStudioStudentProgramBreakdown);
+router.post('/students/:studentId/lessons/:lessonId/components/:componentId/mark', studioController.markStudentResponse);
+router.post('/students/:studentId/lessons/:lessonId/components/:componentId/reset', studioController.resetStudentComponentResponse);
 
 // ===========================
 // PROGRAM ROUTES

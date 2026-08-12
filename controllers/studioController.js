@@ -1227,16 +1227,272 @@ exports.getStudioActivity = async (req, res) => {
             }
 
             return {
-                ...act,
-                user: student?.fullName || student?.email || 'Unknown Agent',
+                id: act._id,
+                user: act.userId,
+                userName: act.userName || 'Student',
                 action,
-                type: act.type
+                time: act.timestamp ? new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
+                timestamp: act.timestamp
             };
         }));
 
-        res.json(enrichedActivity);
+        res.json({ activities });
     } catch (error) {
         console.error('Error fetching studio activity:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Mark a student's open-ended component response (shortAnswer / fillInTheBlank)
+exports.markStudentResponse = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const interactionsDb = await getLessonsDb();
+        const { studentId, lessonId, componentId } = req.params;
+        const { score, isApproved } = req.body;
+        const user_id = req.user.user_id;
+
+        let lesson = null;
+        let astLesson = null;
+        const objId = toObjectId(lessonId);
+
+        if (objId) {
+            lesson = await db.collection('lessons').findOne({ _id: objId });
+        }
+        if (!lesson) {
+            lesson = await db.collection('lessons').findOne({
+                $or: [
+                    { lesson_data: lessonId },
+                    { _id: lessonId }
+                ]
+            });
+        }
+
+        if (lesson && lesson.lesson_data) {
+            const astObjId = toObjectId(lesson.lesson_data);
+            astLesson = await interactionsDb.collection('lessons').findOne({
+                $or: [
+                    { _id: astObjId || lesson.lesson_data },
+                    { id: lesson.lesson_data.toString() }
+                ]
+            });
+        } else {
+            astLesson = await interactionsDb.collection('lessons').findOne({
+                $or: [
+                    { id: lessonId },
+                    { _id: objId || lessonId }
+                ]
+            });
+        }
+
+        const possibleLessonIds = Array.from(new Set([
+            lessonId,
+            toObjectId(lessonId),
+            lesson?._id,
+            lesson?._id?.toString(),
+            lesson?.lesson_data,
+            lesson?.lesson_data?.toString(),
+            astLesson?.id,
+            astLesson?._id,
+            astLesson?._id?.toString()
+        ].filter(Boolean)));
+
+        const studentObjId = toObjectId(studentId);
+        const possibleUserIds = Array.from(new Set([
+            studentId,
+            studentId?.toString(),
+            studentObjId
+        ].filter(Boolean)));
+
+        // Check if student is actively in session (heartbeat / active within last 30 seconds)
+        const existingInteraction = await interactionsDb.collection('interactions').findOne({
+            userId: { $in: possibleUserIds },
+            lessonId: { $in: possibleLessonIds }
+        });
+
+        if (existingInteraction) {
+            const lastActive = existingInteraction.lastStudentActiveAt || existingInteraction.lastActiveAt;
+            if (lastActive) {
+                const diffMs = Date.now() - new Date(lastActive).getTime();
+                if (diffMs < 30000) {
+                    const secondsAgo = Math.max(1, Math.floor(diffMs / 1000));
+                    return res.status(409).json({
+                        error: 'STUDENT_SESSION_ACTIVE',
+                        message: `Student is currently active in this lesson (last active ${secondsAgo}s ago). Tutor marking is locked to prevent session collisions.`,
+                        secondsAgo
+                    });
+                }
+            }
+        }
+
+        const mode = req.body.mode || 'practice';
+
+        const awardedPoints = isApproved ? (score || 10) : 0;
+        const correctAnswers = req.body.correctAnswers || null;
+
+        // If component was previously tutor-marked, capture the old score so we can reverse it
+        const previousScore = (existingInteraction?.componentsState?.[componentId]?.tutorMarked === true)
+            ? (Number(existingInteraction.componentsState[componentId].score) || 0)
+            : 0;
+
+        const updateSet = {
+            [`componentsState.${componentId}.isPendingMarking`]: false,
+            [`componentsState.${componentId}.score`]: awardedPoints,
+            [`componentsState.${componentId}.tutorMarked`]: true,
+            [`componentsState.${componentId}.isApproved`]: Boolean(isApproved),
+            [`componentsState.${componentId}.markedBy`]: user_id,
+            [`componentsState.${componentId}.markedAt`]: new Date(),
+            [`components.${componentId}.isPendingMarking`]: false,
+            [`components.${componentId}.score`]: awardedPoints,
+            [`components.${componentId}.tutorMarked`]: true,
+            [`components.${componentId}.isApproved`]: Boolean(isApproved),
+            [`components.${componentId}.markedBy`]: user_id,
+            [`components.${componentId}.markedAt`]: new Date(),
+            lastUpdated: new Date()
+        };
+
+        if (correctAnswers && typeof correctAnswers === 'object') {
+            updateSet[`componentsState.${componentId}.correctAnswers`] = correctAnswers;
+            updateSet[`components.${componentId}.correctAnswers`] = correctAnswers;
+        }
+
+        await interactionsDb.collection('interactions').updateMany(
+            { userId: { $in: possibleUserIds }, lessonId: { $in: possibleLessonIds } },
+            { $set: updateSet }
+        );
+
+        // Only update the main lesson score for live mode components
+        // For re-marking: subtract previous score, then add new score (net delta)
+        if (mode === 'live') {
+            const scoreDelta = awardedPoints - previousScore;
+            if (scoreDelta !== 0) {
+                await interactionsDb.collection('interactions').updateMany(
+                    { userId: { $in: possibleUserIds }, lessonId: { $in: possibleLessonIds } },
+                    {
+                        $inc: {
+                            'lessonState.score': scoreDelta,
+                            score: scoreDelta
+                        }
+                    }
+                );
+            }
+        }
+
+        res.json({ message: 'Response marked successfully', awardedPoints });
+    } catch (error) {
+        console.error('Error marking student response:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Reset a student's component response allowing them to retry
+exports.resetStudentComponentResponse = async (req, res) => {
+    try {
+        const db = await getMainDb();
+        const interactionsDb = await getLessonsDb();
+        const { studentId, lessonId, componentId } = req.params;
+
+        let lesson = null;
+        let astLesson = null;
+        const objId = toObjectId(lessonId);
+
+        if (objId) {
+            lesson = await db.collection('lessons').findOne({ _id: objId });
+        }
+        if (!lesson) {
+            lesson = await db.collection('lessons').findOne({
+                $or: [
+                    { lesson_data: lessonId },
+                    { _id: lessonId }
+                ]
+            });
+        }
+
+        if (lesson && lesson.lesson_data) {
+            const astObjId = toObjectId(lesson.lesson_data);
+            astLesson = await interactionsDb.collection('lessons').findOne({
+                $or: [
+                    { _id: astObjId || lesson.lesson_data },
+                    { id: lesson.lesson_data.toString() }
+                ]
+            });
+        } else {
+            astLesson = await interactionsDb.collection('lessons').findOne({
+                $or: [
+                    { id: lessonId },
+                    { _id: objId || lessonId }
+                ]
+            });
+        }
+
+        const possibleLessonIds = Array.from(new Set([
+            lessonId,
+            toObjectId(lessonId),
+            lesson?._id,
+            lesson?._id?.toString(),
+            lesson?.lesson_data,
+            lesson?.lesson_data?.toString(),
+            astLesson?.id,
+            astLesson?._id,
+            astLesson?._id?.toString()
+        ].filter(Boolean)));
+
+        const studentObjId = toObjectId(studentId);
+        const possibleUserIds = Array.from(new Set([
+            studentId,
+            studentId?.toString(),
+            studentObjId
+        ].filter(Boolean)));
+
+        // Check if student is actively in session (heartbeat / active within last 30 seconds)
+        const existingInteraction = await interactionsDb.collection('interactions').findOne({
+            userId: { $in: possibleUserIds },
+            lessonId: { $in: possibleLessonIds }
+        });
+
+        if (existingInteraction) {
+            const lastActive = existingInteraction.lastStudentActiveAt || existingInteraction.lastActiveAt;
+            if (lastActive) {
+                const diffMs = Date.now() - new Date(lastActive).getTime();
+                if (diffMs < 30000) {
+                    const secondsAgo = Math.max(1, Math.floor(diffMs / 1000));
+                    return res.status(409).json({
+                        error: 'STUDENT_SESSION_ACTIVE',
+                        message: `Student is currently active in this lesson (last active ${secondsAgo}s ago). Resetting is locked to prevent session collisions.`,
+                        secondsAgo
+                    });
+                }
+            }
+        }
+
+        const resetState = {
+            wasReset: true,
+            status: 'uncompleted',
+            isSubmitted: false,
+            isPendingMarking: false,
+            userResponse: '',
+            userAnswers: {},
+            score: 0,
+            tutorMarked: false,
+            resetAt: new Date()
+        };
+
+        const result = await interactionsDb.collection('interactions').updateMany(
+            { userId: { $in: possibleUserIds }, lessonId: { $in: possibleLessonIds } },
+            {
+                $set: {
+                    [`componentsState.${componentId}`]: resetState,
+                    [`components.${componentId}`]: resetState,
+                    lastUpdated: new Date()
+                }
+            }
+        );
+
+        console.log(`[resetStudentComponentResponse] Modified ${result.modifiedCount} interaction documents for student ${studentId}`);
+
+        res.json({ message: 'Component response reset successfully', modifiedCount: result.modifiedCount });
+    } catch (error) {
+        console.error('Error resetting student component response:', error);
         res.status(500).json({ error: error.message });
     }
 };

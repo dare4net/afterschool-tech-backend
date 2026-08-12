@@ -68,11 +68,11 @@ exports.createLesson = async (req, res) => {
 exports.getLessonDetails = async (req, res) => {
   console.log(`[LESSON] Get Lesson Details called - ${new Date().toISOString()}`);
   const { lessonId } = req.params;
-  const userId = req.user?.user_id;
-  const userIdString = String(userId);
+  const targetUserId = req.query.userId || req.user?.user_id;
+  const userIdString = targetUserId ? String(targetUserId) : null;
 
   console.log('[LESSON] Lesson ID:', lessonId);
-  console.log('[LESSON] User ID:', userId);
+  console.log('[LESSON] Target User ID:', targetUserId);
 
   try {
     const mainDb = await getMainDb();
@@ -93,6 +93,11 @@ exports.getLessonDetails = async (req, res) => {
       contentData = await lessonsDb.collection('lessons').findOne({
         _id: toObjectId(metaData.lesson_data)
       });
+      if (!contentData) {
+        contentData = await lessonsDb.collection('lessons').findOne({
+          id: metaData.lesson_data.toString()
+        });
+      }
     } else {
       // If no metadata found yet, the lessonId might be the string 'id' from ast_lessons
       contentData = await lessonsDb.collection('lessons').findOne({
@@ -113,7 +118,7 @@ exports.getLessonDetails = async (req, res) => {
 
     // 3. Fetch user interaction if userId is available
     let interaction = null;
-    if (userId) {
+    if (userIdString) {
       interaction = await lessonsDb.collection('interactions').findOne({
         userId: userIdString,
         lessonId: contentData.id
