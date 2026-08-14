@@ -702,17 +702,23 @@ exports.getLesson = async (req, res) => {
         const mergedDescription = lesson.description || content.description || '';
         const mergedVoice = content.voice || lesson.voice || 'inherit';
         const mergedAuthor = content.author || lesson.author || tutorAuthorName;
+        const mergedIntroAudioUrl = content.introAudioUrl || lesson.introAudioUrl || null;
+        const mergedIntroTextHash = content.introTextHash || lesson.introTextHash || null;
 
         res.json({
             ...lesson,
             description: mergedDescription,
             voice: mergedVoice,
             author: mergedAuthor,
+            introAudioUrl: mergedIntroAudioUrl,
+            introTextHash: mergedIntroTextHash,
             content: {
                 ...content,
                 description: mergedDescription,
                 voice: mergedVoice,
                 author: mergedAuthor,
+                introAudioUrl: mergedIntroAudioUrl,
+                introTextHash: mergedIntroTextHash,
             }
         });
     } catch (error) {
@@ -760,13 +766,14 @@ exports.updateLesson = async (req, res) => {
         );
 
         // Update content if provided
-        if (slides || settings || title || req.body.voice !== undefined || req.body.introAudioUrl !== undefined) {
+        if (slides || settings || title || req.body.voice !== undefined || req.body.introAudioUrl !== undefined || req.body.introTextHash !== undefined) {
             const contentUpdate = { updated_at: new Date() };
             if (title) contentUpdate.title = title;
             if (slides) contentUpdate.slides = slides;
             if (settings) contentUpdate.settings = settings;
             if (req.body.voice !== undefined) contentUpdate.voice = req.body.voice;
             if (req.body.introAudioUrl !== undefined) contentUpdate.introAudioUrl = req.body.introAudioUrl;
+            if (req.body.introTextHash !== undefined) contentUpdate.introTextHash = req.body.introTextHash;
 
             await lessonsDb.collection('lessons').updateOne(
                 { _id: lesson.lesson_data },

@@ -566,7 +566,14 @@ exports.getAllLessonsByUser = async (req, res) => {
 
     // 1. Get user's programs from users collection
     const user = await mainDb.collection('users').findOne(
-      { user_id: userId },
+      {
+        $or: [
+          { user_id: userId },
+          { user_id: userIdString },
+          { user_id: Number(userId) || -1 },
+          ...(toObjectId(userId) ? [{ _id: toObjectId(userId) }] : [])
+        ]
+      },
       { projection: { programs: 1 } }
     );
 
@@ -581,91 +588,106 @@ exports.getAllLessonsByUser = async (req, res) => {
     for (const programId of user.programs) {
       console.log('[LESSON] Processing program:', programId);
 
-      const program = await mainDb.collection('programs').findOne(
-        { _id: toObjectId(programId) },
-        { projection: { modules: 1, program_name: 1, title: 1 } }
-      );
-
-      if (!program?.modules?.length) continue;
-
-      const programName = program.program_name || program.title;
-
-      // Use registration to find the active module, fallback to the first module
-      const registration = await mainDb.collection('program_registrations').findOne({
-        user_id: userId,
-        program_id: toObjectId(programId)
+      // Fetch full program document
+      const programObjId = toObjectId(programId);
+      const program = await mainDb.collection('programs').findOne({
+        $or: [
+          ...(programObjId ? [{ _id: programObjId }] : []),
+          { _id: String(programId) }
+        ]
       });
 
-      const activeModuleId = (registration?.progress?.current_module)
-        ? toObjectId(registration.progress.current_module)
-        : toObjectId(program.modules[0]);
+      if (!program || !program.modules?.length) continue;
 
-      if (!activeModuleId) continue;
+      // Studio stores programs with 'name' field
+      const programName = program.name || program.program_name || program.title || 'Program';
 
-      const moduleDetails = await mainDb.collection('modules').findOne(
-        { _id: activeModuleId },
-        { projection: { module_name: 1, title: 1, lessons: 1 } }
-      );
+      // Iterate over ALL modules in the program so every module and its cover thumbnail are resolved
+      for (const moduleId of program.modules) {
+        const moduleObjId = toObjectId(moduleId);
 
-      if (!moduleDetails?.lessons?.length) continue;
-
-      const moduleName = moduleDetails.module_name || moduleDetails.title;
-
-      // 3. Get all lessons from the module
-      const moduleLessons = await mainDb.collection('lessons')
-        .find({ _id: { $in: moduleDetails.lessons } })
-        .toArray();
-
-      // Use moduleLessons directly (no access check needed once registered for program)
-      const accessibleLessons = moduleLessons;
-      if (accessibleLessons.length === 0) continue;
-
-      const lessonDataObjectIds = accessibleLessons
-        .filter(lesson => lesson.lesson_data)
-        .map(lesson => toObjectId(lesson.lesson_data))
-        .filter(id => id !== null);
-
-      // Get ast_lessons details
-      const astLessons = await lessonsDb.collection('lessons')
-        .find({ _id: { $in: lessonDataObjectIds } })
-        .toArray();
-
-      const lessonIds = astLessons.map(l => l.id);
-
-      // Get interactions
-      const interactions = await lessonsDb.collection('interactions')
-        .find({
-          userId: userIdString,
-          lessonId: { $in: lessonIds }
-        })
-        .toArray();
-
-      const interactedLessonIds = new Set(interactions.map(i => i.lessonId));
-      const lessonDataToAstId = new Map(astLessons.map(l => [l._id.toString(), l.id]));
-
-      // Format lessons
-      for (const lesson of accessibleLessons) {
-        const astLesson = astLessons.find(l => l._id.toString() === lesson.lesson_data?.toString());
-        if (!astLesson) continue;
-
-        const interaction = interactions.find(i => i.lessonId === astLesson.id);
-
-        allConsolidatedLessons.push({
-          ...lesson,
-          lessonId: astLesson.id,
-          program: programName,
-          module: moduleName,
-          progress: interaction?.lessonState?.progress || 0,
-          lastUpdated: interaction?.lastUpdated || null,
-          status: interaction?.lessonState?.progress === 100 ? 'COMPLETED' : (interaction ? 'IN_PROGRESS' : 'NEW')
+        // Fetch full module document
+        const moduleDetails = await mainDb.collection('modules').findOne({
+          $or: [
+            ...(moduleObjId ? [{ _id: moduleObjId }] : []),
+            { _id: String(moduleId) }
+          ]
         });
+
+        if (!moduleDetails || !moduleDetails.lessons?.length) continue;
+
+        // Studio stores modules with 'name' field
+        const moduleName = moduleDetails.name || moduleDetails.module_name || moduleDetails.title || 'Module';
+
+        console.log(`[LESSON] Module: ${moduleName}, image_url: ${moduleDetails.image_url}, cover_image: ${moduleDetails.cover_image}, program image_url: ${program.image_url}`);
+
+        // 3. Get all lessons from the module (query both ObjectIds and string IDs)
+        const lessonObjectIds = moduleDetails.lessons.map(l => toObjectId(l)).filter(Boolean);
+        const lessonStringIds = moduleDetails.lessons.map(l => String(l));
+        const lessonQueryIds = Array.from(new Set([...lessonObjectIds, ...lessonStringIds]));
+
+        const moduleLessons = await mainDb.collection('lessons')
+          .find({ _id: { $in: lessonQueryIds } })
+          .toArray();
+
+        const accessibleLessons = moduleLessons;
+        if (accessibleLessons.length === 0) continue;
+
+        const lessonDataObjectIds = accessibleLessons
+          .filter(lesson => lesson.lesson_data)
+          .map(lesson => toObjectId(lesson.lesson_data))
+          .filter(id => id !== null);
+        const lessonDataStringIds = accessibleLessons
+          .filter(lesson => lesson.lesson_data)
+          .map(lesson => String(lesson.lesson_data));
+
+        // Get ast_lessons details
+        const astLessons = await lessonsDb.collection('lessons')
+          .find({ _id: { $in: Array.from(new Set([...lessonDataObjectIds, ...lessonDataStringIds])) } })
+          .toArray();
+
+        const lessonIds = astLessons.map(l => l.id);
+
+        // Get interactions
+        const interactions = await lessonsDb.collection('interactions')
+          .find({
+            userId: userIdString,
+            lessonId: { $in: lessonIds }
+          })
+          .toArray();
+
+        // Format lessons
+        for (const lesson of accessibleLessons) {
+          const astLesson = astLessons.find(l => l._id.toString() === lesson.lesson_data?.toString());
+          if (!astLesson) continue;
+
+          const interaction = interactions.find(i => i.lessonId === astLesson.id);
+
+          // Resolve thumbnail with full cascading inheritance (Lesson -> Module -> Program)
+          const lessonThumbnail = astLesson?.thumbnail || astLesson?.coverImage || astLesson?.imageUrl || lesson?.thumbnail || lesson?.cover_image || lesson?.image_url || null;
+          const moduleThumbnail = moduleDetails?.thumbnail || moduleDetails?.image_url || moduleDetails?.cover_image || moduleDetails?.coverImage || moduleDetails?.imageUrl || null;
+          const programThumbnail = program?.thumbnail || program?.image_url || program?.cover_image || program?.coverImage || program?.imageUrl || null;
+
+          const resolvedThumbnail = lessonThumbnail || moduleThumbnail || programThumbnail || null;
+
+          allConsolidatedLessons.push({
+            ...lesson,
+            lessonId: astLesson.id,
+            program: programName,
+            module: moduleName,
+            thumbnail: resolvedThumbnail,
+            progress: interaction?.lessonState?.progress || 0,
+            lastUpdated: interaction?.lastUpdated || null,
+            status: interaction?.lessonState?.progress === 100 ? 'COMPLETED' : (interaction ? 'IN_PROGRESS' : 'NEW')
+          });
+        }
       }
     }
 
-    // Sort by last activity (updatedAt descending)
+    // Sort by last activity (lastUpdated descending, then updatedAt descending)
     allConsolidatedLessons.sort((a, b) => {
-      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      const timeA = a.lastUpdated ? new Date(a.lastUpdated).getTime() : (a.updatedAt ? new Date(a.updatedAt).getTime() : 0);
+      const timeB = b.lastUpdated ? new Date(b.lastUpdated).getTime() : (b.updatedAt ? new Date(b.updatedAt).getTime() : 0);
       return timeB - timeA;
     });
 
