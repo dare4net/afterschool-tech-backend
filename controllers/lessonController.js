@@ -668,7 +668,10 @@ exports.getAllLessonsByUser = async (req, res) => {
           const moduleThumbnail = moduleDetails?.thumbnail || moduleDetails?.image_url || moduleDetails?.cover_image || moduleDetails?.coverImage || moduleDetails?.imageUrl || null;
           const programThumbnail = program?.thumbnail || program?.image_url || program?.cover_image || program?.coverImage || program?.imageUrl || null;
 
-          const resolvedThumbnail = lessonThumbnail || moduleThumbnail || programThumbnail || null;
+          let resolvedThumbnail = lessonThumbnail || moduleThumbnail || programThumbnail || null;
+          if (resolvedThumbnail && typeof resolvedThumbnail === 'string' && resolvedThumbnail.startsWith('data:image/')) {
+            resolvedThumbnail = null;
+          }
 
           allConsolidatedLessons.push({
             ...lesson,

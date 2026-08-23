@@ -67,7 +67,22 @@ async function deleteFromCloudinary(url) {
     }
 }
 
+function getCloudinaryPublicId(url) {
+    if (!url || typeof url !== 'string' || !url.includes('res.cloudinary.com')) return null;
+    try {
+        const parts = url.split('/upload/');
+        if (parts.length < 2) return null;
+        let publicIdWithExt = parts[1].replace(/^v\d+\//, '');
+        const lastDot = publicIdWithExt.lastIndexOf('.');
+        return lastDot !== -1 ? publicIdWithExt.substring(0, lastDot) : publicIdWithExt;
+    } catch (e) {
+        return null;
+    }
+}
+
 module.exports = {
     uploadToCloudinary,
-    deleteFromCloudinary
+    deleteFromCloudinary,
+    getCloudinaryPublicId
 };
+

@@ -1,7 +1,7 @@
 const { ObjectId } = require('mongodb');
 const { getMainDb, getLessonsDb } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
-const { uploadToCloudinary, deleteFromCloudinary } = require('../helpers/cloudinaryHelper');
+const { uploadToCloudinary, deleteFromCloudinary, getCloudinaryPublicId } = require('../helpers/cloudinaryHelper');
 
 // Helper to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -195,9 +195,12 @@ exports.updateProgram = async (req, res) => {
         const oldImage = program.image_url || program.cover_image;
         if (updateData.image_url) {
             if (updateData.image_url.startsWith('data:image/')) {
-                updateData.image_url = await uploadToCloudinary(updateData.image_url, 'ast_thumbnails', `program_${id}`);
+                const uploaded = await uploadToCloudinary(updateData.image_url, 'ast_thumbnails', `program_${id}`);
+                updateData.image_url = (uploaded && !uploaded.startsWith('data:image/')) ? uploaded : '';
             }
-            if (oldImage && oldImage !== updateData.image_url && oldImage.includes('res.cloudinary.com')) {
+            const oldPublicId = getCloudinaryPublicId(oldImage);
+            const newPublicId = getCloudinaryPublicId(updateData.image_url);
+            if (oldImage && oldPublicId && oldPublicId !== newPublicId && oldImage.includes('res.cloudinary.com')) {
                 await deleteFromCloudinary(oldImage);
             }
         } else if (updateData.image_url === '' && oldImage && oldImage.includes('res.cloudinary.com')) {
@@ -438,9 +441,12 @@ exports.updateModule = async (req, res) => {
         const oldImage = module.image_url || module.cover_image;
         if (updateData.image_url) {
             if (updateData.image_url.startsWith('data:image/')) {
-                updateData.image_url = await uploadToCloudinary(updateData.image_url, 'ast_thumbnails', `module_${id}`);
+                const uploaded = await uploadToCloudinary(updateData.image_url, 'ast_thumbnails', `module_${id}`);
+                updateData.image_url = (uploaded && !uploaded.startsWith('data:image/')) ? uploaded : '';
             }
-            if (oldImage && oldImage !== updateData.image_url && oldImage.includes('res.cloudinary.com')) {
+            const oldPublicId = getCloudinaryPublicId(oldImage);
+            const newPublicId = getCloudinaryPublicId(updateData.image_url);
+            if (oldImage && oldPublicId && oldPublicId !== newPublicId && oldImage.includes('res.cloudinary.com')) {
                 await deleteFromCloudinary(oldImage);
             }
         } else if (updateData.image_url === '' && oldImage && oldImage.includes('res.cloudinary.com')) {
