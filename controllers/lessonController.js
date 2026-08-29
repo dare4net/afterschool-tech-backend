@@ -1,6 +1,8 @@
 const { ObjectId } = require('mongodb');
 const { getMainDb, getLessonsDb, client } = require('../config/database');
 const { accessCheck } = require('../utils/accessChecker');
+const { resolveLessonViewerUserId } = require('../helpers/actorUser');
+const { resolveLessonRef } = require('../helpers/lessonRef');
 
 // Redis disabled
 const redis = null;
@@ -68,49 +70,17 @@ exports.createLesson = async (req, res) => {
 exports.getLessonDetails = async (req, res) => {
   console.log(`[LESSON] Get Lesson Details called - ${new Date().toISOString()}`);
   const { lessonId } = req.params;
-  const targetUserId = req.query.userId || req.user?.user_id;
+  const targetUserId = resolveLessonViewerUserId(req);
   const userIdString = targetUserId ? String(targetUserId) : null;
 
   console.log('[LESSON] Lesson ID:', lessonId);
   console.log('[LESSON] Target User ID:', targetUserId);
 
   try {
-    const mainDb = await getMainDb();
     const lessonsDb = await getLessonsDb();
-
-    let metaData = null;
-    let contentData = null;
-
-    // 1. Try to find metadata by ObjectId first
-    const objectId = toObjectId(lessonId);
-    if (objectId) {
-      metaData = await mainDb.collection('lessons').findOne({ _id: objectId });
-    }
-
-    // 2. Try to find content by string ID if not found or if lessonId is a string
-    // If we have metadata, use lesson_data to find content
-    if (metaData && metaData.lesson_data) {
-      contentData = await lessonsDb.collection('lessons').findOne({
-        _id: toObjectId(metaData.lesson_data)
-      });
-      if (!contentData) {
-        contentData = await lessonsDb.collection('lessons').findOne({
-          id: metaData.lesson_data.toString()
-        });
-      }
-    } else {
-      // If no metadata found yet, the lessonId might be the string 'id' from ast_lessons
-      contentData = await lessonsDb.collection('lessons').findOne({
-        id: lessonId
-      });
-
-      // If found content, try to find back the metadata
-      if (contentData) {
-        metaData = await mainDb.collection('lessons').findOne({
-          lesson_data: contentData._id
-        });
-      }
-    }
+    const ref = await resolveLessonRef(lessonId);
+    const metaData = ref?.catalog || null;
+    const contentData = ref?.content || null;
 
     if (!contentData) {
       return res.status(404).json({ message: 'Lesson content not found' });
@@ -121,7 +91,7 @@ exports.getLessonDetails = async (req, res) => {
     if (userIdString) {
       interaction = await lessonsDb.collection('interactions').findOne({
         userId: userIdString,
-        lessonId: contentData.id
+        lessonId: ref.publicId || contentData.id
       });
     }
 
@@ -129,7 +99,8 @@ exports.getLessonDetails = async (req, res) => {
     const response = {
       lesson: {
         ...contentData,
-        metadata: metaData || {}
+        metadata: metaData || {},
+        module_id: metaData?.module_id ? String(metaData.module_id) : contentData.module_id,
       },
       interaction: interaction
     };
@@ -189,38 +160,11 @@ exports.markLessonCompleted = async (req, res) => {
     const userId = req.user.user_id;
 
     const db = await getMainDb();
-    const lessonsDb = await getLessonsDb();
+    const ref = await resolveLessonRef(lessonId);
+    const lesson = ref?.catalog || null;
 
-    // ── Resolve the lesson: the viewer sends the ast_lessons UUID string
-    //    (e.g. "lesson-1719876543210"), not the afterschooltech ObjectId.
-    //    We must resolve it to the actual afterschooltech.lessons document.
-    let lesson = null;
-    const objectId = toObjectId(lessonId);
-
-    // 1. Try direct ObjectId lookup first (in case someone passes a real ObjectId)
-    if (objectId) {
-      lesson = await db.collection('lessons').findOne(
-        { _id: objectId },
-        { projection: { _id: 1, module_id: 1 } }
-      );
-    }
-
-    // 2. If not found, resolve via ast_lessons UUID → lesson_data reference
-    if (!lesson) {
-      // Find the ast_lessons document by its string `id` field
-      const astLesson = await lessonsDb.collection('lessons').findOne(
-        { id: lessonId },
-        { projection: { _id: 1 } }
-      );
-
-      if (astLesson) {
-        // Find the afterschooltech.lessons record that references this ast_lesson
-        lesson = await db.collection('lessons').findOne(
-          { lesson_data: astLesson._id },
-          { projection: { _id: 1, module_id: 1 } }
-        );
-        console.log(`[LESSON] Resolved ast_lessons UUID "${lessonId}" → lessons._id: ${lesson?._id}`);
-      }
+    if (ref?.publicId && lesson) {
+      console.log(`[LESSON] Resolved "${lessonId}" → catalog ${lesson._id} (public ${ref.publicId})`);
     }
 
     if (!lesson) {
@@ -228,12 +172,16 @@ exports.markLessonCompleted = async (req, res) => {
       return res.status(404).json({ message: 'Lesson not found' });
     }
 
-    // Build the completion record with the resolved ObjectId
-    const completion = {
-      user_id: userId,
-      lesson_id: lesson._id,
+    const earned = Number(req.body?.score);
+    const maxScore = Number(req.body?.maxScore);
+    const score = Number.isFinite(earned) && earned >= 0 ? earned : 0;
+    const possible = Number.isFinite(maxScore) && maxScore >= 0 ? maxScore : 0;
+
+    // Build the completion record with raw points (not a 0–100 percentage)
+    const completionFields = {
+      score,
+      max_score: possible,
       completed_at: new Date(),
-      score: req.body.score,
       time_spent: req.body.timeSpent
     };
 
@@ -243,7 +191,14 @@ exports.markLessonCompleted = async (req, res) => {
     try {
       await session.withTransaction(async () => {
         // Add to lesson completions
-        await db.collection('lesson_completions').insertOne(completion, { session });
+        await db.collection('lesson_completions').updateOne(
+          { user_id: userId, lesson_id: lesson._id },
+          {
+            $set: completionFields,
+            $setOnInsert: { user_id: userId, lesson_id: lesson._id },
+          },
+          { upsert: true, session }
+        );
 
         // Find the program this module belongs to
         programForProgress = await db.collection('programs').findOne(
@@ -325,7 +280,7 @@ exports.markLessonCompleted = async (req, res) => {
 
       const response = {
         message: 'Lesson marked as completed',
-        completed_at: completion.completed_at
+        completed_at: completionFields.completed_at
       };
       console.log('[LESSON] Success Response:', JSON.stringify(response, null, 2));
       res.json(response);

@@ -1,8 +1,4 @@
-const { MongoClient } = require('mongodb');
-
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
-const db = client.db('ast_beta');
+const { getBetaDb } = require('../config/database');
 
 exports.submitFeedback = async (req, res) => {
   console.log(`[BETA] Submit Feedback called - ${new Date().toISOString()}`);
@@ -10,6 +6,7 @@ exports.submitFeedback = async (req, res) => {
   console.log('[BETA] User:', req.user?.user_id);
 
   try {
+    const db = await getBetaDb();
     const { phase, message, category, screen, anonymous } = req.body;
     
     // Ensure user is authenticated
@@ -50,6 +47,7 @@ exports.getUserFeedbacks = async (req, res) => {
   console.log('[BETA] User:', req.user?.user_id);
 
   try {
+    const db = await getBetaDb();
     // Ensure user is authenticated
     if (!req.user?.user_id) {
       console.log('[BETA] Authentication failed - no user ID');

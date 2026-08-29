@@ -2,18 +2,32 @@
 const express = require('express');
 require('dotenv').config();
 const cors = require('cors');
+const helmet = require('helmet');
 const { connectDB } = require('./config/database');
 const authRoutes = require('./routes/authRoutes');
 const programRoutes = require('./routes/programRoutes');
 const profileRoutes = require('./routes/profileRoutes');
-const adminRoutes = require('./routes/adminRoutes');
 const lessonRoutes = require('./routes/lessonRoutes');
 const betaRoutes = require('./routes/betaRoutes');
 const studioRoutes = require('./routes/studioRoutes');
+const superadminRoutes = require('./routes/superadminRoutes');
+const {
+  notFoundHandler,
+  errorHandler,
+  authLimiter,
+  walletLimiter,
+} = require('./middleware/httpGuards');
+const { requestIdMiddleware, requestLogMiddleware } = require('./middleware/requestId');
+const { healthHandler } = require('./controllers/healthController');
+const { log } = require('./helpers/logger');
 const temporaryAccessMiddleware = require('./middleware/temporaryAccess');
 
 
 const app = express();
+app.set('trust proxy', 1);
+app.use(helmet());
+app.use(requestIdMiddleware);
+app.use(requestLogMiddleware);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -35,10 +49,11 @@ app.use(cors({
 
 const PORT = process.env.PORT || 5001;
 
-// Example test route
 app.get('/', (req, res) => {
   res.send('After-school.tech backend running!');
 });
+
+app.get('/health', healthHandler);
 
 // Remove old MongoDB test route - connection handled by centralized module
 
@@ -46,19 +61,40 @@ app.get('/', (req, res) => {
 // app.use('/api/auth', temporaryAccessMiddleware);
 
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter(), authRoutes);
 app.use('/api/programs', programRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/admin', adminRoutes);
 app.use('/api/lessons', lessonRoutes);
 app.use('/api/beta', betaRoutes);
-app.use('/api/studio', studioRoutes);  // Studio routes for lesson builder
+app.use('/api/studio', studioRoutes);
+app.use('/api/superadmin', superadminRoutes);
+const walletRoutes = require('./routes/walletRoutes');
+const leaderboardRoutes = require('./routes/leaderboardRoutes');
+const statsRoutes = require('./routes/statsRoutes');
+const missionRoutes = require('./routes/missionRoutes');
+const levelRoutes = require('./routes/levelRoutes');
+const studentAchievementRoutes = require('./routes/studentAchievements');
+const interactionRoutes = require('./routes/interactionRoutes');
+const pollRoutes = require('./routes/pollRoutes');
+const wordCloudRoutes = require('./routes/wordCloudRoutes');
+app.use('/api/wallet', walletLimiter(), walletRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/stats', statsRoutes);
+app.use('/api/missions', missionRoutes);
+app.use('/api/level', levelRoutes);
+app.use('/api/achievements', studentAchievementRoutes);
+app.use('/api/interactions', interactionRoutes);
+app.use('/api/polls', pollRoutes);
+app.use('/api/wordclouds', wordCloudRoutes);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 // Connect to MongoDB then start the server
 connectDB().then(() => {
   app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    log('info', 'listen', { port: Number(PORT) });
   });
 }).catch(err => {
-  console.error('Failed to connect to MongoDB:', err);
+  log('error', 'mongo_connect_failed', { msg: err.message });
 });

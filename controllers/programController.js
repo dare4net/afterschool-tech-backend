@@ -1,8 +1,5 @@
-const { MongoClient, ObjectId } = require('mongodb');
-
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
-const db = client.db('afterschooltech');
+const { ObjectId } = require('mongodb');
+const { getMainDb, client } = require('../config/database');
 
 // Helper function to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -15,6 +12,7 @@ const toObjectId = (id) => {
 
 // Helper function to recursively fetch modules and milestones
 async function fetchProgramDetails(programId) {
+  const db = await getMainDb();
   const program = await db.collection('programs').findOne({ _id: toObjectId(programId) });
   if (!program) return null;
 
@@ -69,6 +67,7 @@ exports.getProgramDetails = async (req, res) => {
 // Register a student for a program
 exports.registerForProgram = async (req, res) => {
   try {
+    const db = await getMainDb();
     const { programId } = req.params;
     const userId = req.user.user_id; // From auth middleware
     const programObjectId = toObjectId(programId);
@@ -140,6 +139,7 @@ exports.registerForProgram = async (req, res) => {
 // List all programs (with optional filters)
 exports.listPrograms = async (req, res) => {
   try {
+    const db = await getMainDb();
     const { search, sort = 'created_at' } = req.query;
 
     let query = {
@@ -172,6 +172,7 @@ exports.listPrograms = async (req, res) => {
 // Get student's registered programs
 exports.getMyPrograms = async (req, res) => {
   try {
+    const db = await getMainDb();
     const userId = req.user.user_id;
 
     // Get user with their programs array
@@ -230,6 +231,7 @@ exports.getMyPrograms = async (req, res) => {
 // Get user's progress for a specific program
 exports.getMyProgramProgress = async (req, res) => {
   try {
+    const db = await getMainDb();
     const { programId } = req.params;
     const userId = req.user.user_id;
 
@@ -261,6 +263,7 @@ exports.getMyProgramProgress = async (req, res) => {
 // Unregister/Leave a program (Resets progress)
 exports.unregisterFromProgram = async (req, res) => {
   try {
+    const db = await getMainDb();
     const { programId } = req.params;
     const userId = req.user.user_id;
     const programObjectId = toObjectId(programId);

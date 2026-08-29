@@ -1,12 +1,10 @@
-const { MongoClient } = require('mongodb');
-const { uploadToCloudinary } = require('../helpers/cloudinaryHelper');
 require('dotenv').config();
+const { uploadToCloudinary } = require('../helpers/cloudinaryHelper');
+const { getMainDb, closeDB } = require('../config/database');
 
 async function cleanBase64Images() {
     console.log('[Migration] Starting Base64 Image Cleanup for MongoDB...');
-    const client = new MongoClient(process.env.MONGODB_URI);
-    await client.connect();
-    const db = client.db('afterschooltech');
+    const db = await getMainDb();
 
     const modules = await db.collection('modules').find({}).toArray();
     const programs = await db.collection('programs').find({}).toArray();
@@ -51,7 +49,7 @@ async function cleanBase64Images() {
     }
 
     console.log(`\n[Migration Complete] Cleaned ${cleanedModules} modules and ${cleanedPrograms} programs.`);
-    await client.close();
+    await closeDB();
 }
 
 cleanBase64Images().catch(console.error);

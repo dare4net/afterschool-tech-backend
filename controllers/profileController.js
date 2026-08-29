@@ -1,8 +1,4 @@
-const { MongoClient } = require('mongodb');
-
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
-const db = client.db('afterschooltech');
+const { getMainDb } = require('../config/database');
 
 // Helper: get collection name by role (previously table)
 function getCollectionByRole(role) {
@@ -21,6 +17,7 @@ exports.getProfile = async (req, res) => {
   const userId = req.user.user_id;
   const role = req.user.role;
   try {
+    const db = await getMainDb();
     // Get base user info
     const user = await db.collection('users').findOne(
       { user_id: userId },
@@ -56,6 +53,7 @@ exports.updatePassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
   try {
+    const db = await getMainDb();
     // Get user with password hash
     const user = await db.collection('users').findOne({ user_id: userId });
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -89,6 +87,7 @@ exports.updateProfile = async (req, res) => {
   const { full_name, ...rest } = req.body;
 
   try {
+    const db = await getMainDb();
     // Update base user info
     if (full_name) {
       await db.collection('users').updateOne(

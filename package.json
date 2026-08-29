@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/cloudinaryHelper.test.js tests/actorUser.test.js tests/c1-achievements-unmounted.test.js tests/c4-missions.test.js tests/c9-catalog.test.js tests/superadmin.test.js tests/d1-auth.test.js tests/d2-admin-unmounted.test.js tests/d3-http-guards.test.js tests/d4-mongo-connection.test.js tests/d5-repositories.test.js tests/d8-legacy.test.js tests/e1-interactions.test.js tests/e2-contracts.test.js tests/e3-lesson-ref.test.js tests/e4-live-aggregates.test.js tests/g1-progress-money.test.js tests/g2-observability.test.js tests/g3-concurrency.test.js",
+    "syntax": "node --check server.js",
     "dev": "nodemon server.js",
     "start": "node server.js"
   },
@@ -17,7 +18,9 @@
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.6.2",
     "google-auth-library": "^9.15.1",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.3.0",
     "uuid": "^13.0.0",

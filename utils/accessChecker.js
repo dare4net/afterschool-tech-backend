@@ -1,10 +1,8 @@
-const { MongoClient, ObjectId } = require('mongodb');
+const { getMainDb } = require('../config/database');
 
 class AccessChecker {
   constructor(access) {
     this.access = access || { type: 'everyone', auth: [] };
-    this.client = new MongoClient(process.env.MONGODB_URI);
-    this.mainDb = this.client.db('afterschooltech');
   }
 
   /**
@@ -38,6 +36,7 @@ class AccessChecker {
         return false;
       }
 
+      const db = await getMainDb();
       console.log('[ACCESS] Checking access type:', this.access.type, 'for user:', user.user_id);
 
       switch (this.access.type) {
@@ -82,7 +81,7 @@ class AccessChecker {
 
         case 'current_program': {
           console.log('[ACCESS] Fetching current program for user:', user.user_id);
-          const userDoc = await this.mainDb.collection('users').findOne(
+          const userDoc = await db.collection('users').findOne(
             { user_id: user.user_id },
             { projection: { 'current_program.program_id': 1 } }
           );
@@ -98,7 +97,7 @@ class AccessChecker {
 
         case 'current_module': {
           console.log('[ACCESS] Fetching current module for user:', user.user_id);
-          const registration = await this.mainDb.collection('program_registrations').findOne(
+          const registration = await db.collection('program_registrations').findOne(
             { user_id: user.user_id },
             { projection: { 'progress.current_module': 1 } }
           );

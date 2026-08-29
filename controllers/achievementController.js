@@ -1,49 +1,89 @@
-const pool = require('../config/db');
+const { getAuthenticatedUserId } = require('../helpers/actorUser');
+const { catalogPublicFields, achievementMatches } = require('../helpers/platformAchievements');
+const platformCatalog = require('../helpers/platformCatalog');
+const achievementRepo = require('../repositories/achievementRepo');
+const walletRepo = require('../repositories/walletRepo');
+const { recordProgressEvent } = require('../helpers/studentProgress');
 
-exports.createAchievement = async (req, res) => {
-  const { title, type, criteria } = req.body;
-  try {
-    const [result] = await pool.query(
-      'INSERT INTO achievements_library (name, type, criteria) VALUES (?, ?, ?)',
-      [title, type, criteria]
-    );
-    res.status(201).json({ id: result.insertId, title });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+exports.getStudentAchievements = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
 
-exports.linkAchievementToProgram = async (req, res) => {
-  const { achievement_id } = req.body;
-  const { programId } = req.params;
-  try {
-    await pool.query(
-      'INSERT INTO program_achievements (program_id, achievement_id) VALUES (?, ?)',
-      [programId, achievement_id]
-    );
-    res.status(201).json({ message: 'Achievement linked to program' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
+        const earned = await achievementRepo.listByUser(userId);
+        const earnedIds = new Set(earned.map((e) => e.achievement_id));
+        const catalog = await platformCatalog.listAchievements({ includeDisabled: false });
 
-exports.awardAchievementToStudent = async (req, res) => {
-  const { student_id, achievement_id } = req.body;
-  try {
-    // Prevent duplicate awards
-    const [rows] = await pool.query(
-      'SELECT id FROM student_achievements WHERE student_id = ? AND achievement_id = ?',
-      [student_id, achievement_id]
-    );
-    if (rows.length > 0) {
-      return res.status(409).json({ message: 'Achievement already awarded to student.' });
+        const catalogWithEarned = catalog.map((ach) => ({
+            ...catalogPublicFields(ach),
+            isEarned: earnedIds.has(ach.id),
+            earnedAt: earned.find((e) => e.achievement_id === ach.id)?.earned_at || null,
+        }));
+
+        res.json({
+            success: true,
+            achievements: catalogWithEarned,
+        });
+    } catch (err) {
+        console.error('[ACHIEVEMENTS] Error fetching student achievements:', err);
+        res.status(500).json({ error: 'Internal server error' });
     }
-    await pool.query(
-      'INSERT INTO student_achievements (student_id, achievement_id, earned_at) VALUES (?, ?, NOW())',
-      [student_id, achievement_id]
-    );
-    res.status(201).json({ message: 'Achievement awarded to student.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+};
+
+exports.evaluateEvent = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        const { eventType, payload } = req.body || {};
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        if (!eventType || typeof eventType !== 'string' || !payload || typeof payload !== 'object') {
+            return res.status(400).json({ error: 'eventType and payload are required' });
+        }
+
+        const catalog = await platformCatalog.listAchievements({ includeDisabled: false });
+        const matching = catalog.filter((a) => a.eventType === eventType);
+        const newlyEarned = [];
+
+        for (const ach of matching) {
+            if (!achievementMatches(ach, eventType, payload)) continue;
+
+            const existing = await achievementRepo.findEarned(userId, ach.id);
+            if (existing) continue;
+
+            const record = {
+                user_id: userId,
+                achievement_id: ach.id,
+                title: ach.title,
+                rewardStars: ach.rewardStars,
+                earned_at: new Date(),
+            };
+            await achievementRepo.insertEarned(record);
+            newlyEarned.push(record);
+
+            if (ach.rewardStars > 0) {
+                const transaction = walletRepo.earnTransaction(
+                    ach.rewardStars,
+                    `Achievement: ${ach.title}`
+                );
+                await walletRepo.applyBalanceChange(userId, {
+                    inc: ach.rewardStars,
+                    transaction,
+                    upsert: true,
+                });
+                await recordProgressEvent(userId, 'STARS_AWARDED', { amount: ach.rewardStars });
+            }
+        }
+
+        res.json({
+            success: true,
+            newlyEarned,
+        });
+    } catch (err) {
+        console.error('[ACHIEVEMENTS] Error evaluating achievements:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 };

@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { catalogIdSchema, MISSION_STAT_KEYS, ACHIEVEMENT_EVENT_TYPES, RULE_OPS } = require('../contracts/platform');
 
 // Auth Validators
 const signupSchema = z.object({
@@ -80,7 +81,48 @@ const updateLessonSchema = z.object({
     settings: z.object({}).passthrough().optional(),
     voice: z.string().optional(),
     introAudioUrl: z.string().nullable().optional(),
+    version: z.number().int().min(0).optional(),
 });
+
+const achievementRuleSchema = z.object({
+    field: z.string().min(1).max(64),
+    op: z.enum(RULE_OPS),
+    value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+    over: z.string().min(1).max(64).optional(),
+});
+
+const missionFiltersSchema = z.object({
+    mode: z.enum(['live', 'practice']).optional(),
+    type: z.string().min(1).max(64).optional(),
+    perfect: z.boolean().optional(),
+}).nullish();
+
+const createMissionSchema = z.object({
+    id: catalogIdSchema,
+    level: z.number().int().min(1).max(99),
+    title: z.string().min(1).max(80),
+    description: z.string().min(1).max(240),
+    targetCount: z.number().int().min(1).max(10000),
+    rewardStars: z.number().int().min(0).max(1000),
+    stat: z.enum(MISSION_STAT_KEYS),
+    filters: missionFiltersSchema,
+    enabled: z.boolean().optional(),
+});
+
+const updateMissionSchema = createMissionSchema.omit({ id: true }).partial();
+
+const createAchievementSchema = z.object({
+    id: catalogIdSchema,
+    title: z.string().min(1).max(80),
+    description: z.string().min(1).max(240),
+    icon: z.string().min(1).max(32).optional().default('award'),
+    rewardStars: z.number().int().min(0).max(1000),
+    eventType: z.enum(ACHIEVEMENT_EVENT_TYPES),
+    enabled: z.boolean().optional(),
+    rules: z.array(achievementRuleSchema).min(1).max(12),
+});
+
+const updateAchievementSchema = createAchievementSchema.omit({ id: true }).partial();
 
 // Validation middleware factory
 const validate = (schema) => {
@@ -114,4 +156,8 @@ module.exports = {
     updateModuleSchema,
     createLessonSchema,
     updateLessonSchema,
+    createMissionSchema,
+    updateMissionSchema,
+    createAchievementSchema,
+    updateAchievementSchema,
 };

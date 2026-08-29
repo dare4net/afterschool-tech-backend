@@ -1,10 +1,9 @@
-const { MongoClient, ObjectId } = require('mongodb');
 require('dotenv').config();
+const { ObjectId } = require('mongodb');
+const { getMainDb, closeDB } = require('./config/database');
 
 async function test() {
-    const client = new MongoClient(process.env.MONGODB_URI);
-    await client.connect();
-    const db = client.db('afterschooltech');
+    const db = await getMainDb();
 
     // Search for programs by name matching user's examples
     const programs = await db.collection('programs').find({
@@ -71,6 +70,6 @@ async function test() {
         console.log('  name:', m.name || m.module_name, '| image_url:', m.image_url, '| cover_image:', m.cover_image, '| thumbnail:', m.thumbnail);
     });
 
-    await client.close();
+    await closeDB();
 }
 test().catch(console.error);

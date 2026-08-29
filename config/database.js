@@ -1,5 +1,6 @@
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
+const { log } = require('../helpers/logger');
 
 const uri = process.env.MONGODB_URI;
 
@@ -19,9 +20,9 @@ async function connectDB() {
         try {
             await client.connect();
             isConnected = true;
-            console.log('✅ Connected to MongoDB');
+            log('info', 'mongo_connected');
         } catch (error) {
-            console.error('❌ MongoDB connection failed:', error);
+            log('error', 'mongo_connect_failed', { msg: error.message });
             throw error;
         }
     }
@@ -47,13 +48,30 @@ async function getLessonsDb() {
 }
 
 /**
+ * Get the beta-feedback database (ast_beta)
+ * @returns {Promise<Db>}
+ */
+async function getBetaDb() {
+    await connectDB();
+    return client.db('ast_beta');
+}
+
+/**
+ * Ping MongoDB so /health can report connectivity.
+ */
+async function pingDb() {
+    await connectDB();
+    await client.db('admin').command({ ping: 1 });
+}
+
+/**
  * Close database connection gracefully
  */
 async function closeDB() {
     if (isConnected) {
         await client.close();
         isConnected = false;
-        console.log('MongoDB connection closed');
+        log('info', 'mongo_closed');
     }
 }
 
@@ -72,6 +90,8 @@ module.exports = {
     connectDB,
     getMainDb,
     getLessonsDb,
+    getBetaDb,
+    pingDb,
     closeDB,
     client
 };

@@ -1,9 +1,9 @@
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const { ObjectId } = require('mongodb');
 const axios = require('axios');
 const { getMainDb } = require('../config/database');
 const generateUserId = require('../utils/generateUserId');
+const { verifyAppleIdToken } = require('../helpers/appleIdToken');
+const { issueAuthToken, findOrCreateSocialUser } = require('../helpers/authIdentity');
 
 // Google OAuth2 client
 // const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -45,12 +45,7 @@ exports.signup = async (req, res) => {
     const collection = `${role}s`; // students, parents, organizations, tutors
     await db.collection(collection).insertOne(roleDoc);
 
-    // Automatic login after registration
-    const token = jwt.sign(
-      { user_id, role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = issueAuthToken({ user_id, account_type: role });
 
     res.status(201).json({ message: 'User registered', token });
   } catch (err) {
@@ -73,12 +68,7 @@ exports.login = async (req, res) => {
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ message: 'Invalid credentials' });
 
-    // Use user_id and account_type for JWT, to match signup
-    const token = jwt.sign(
-      { user_id: user.user_id, role: user.account_type },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = issueAuthToken(user);
     res.json({ token });
   } catch (err) {
     console.error('MongoDB Error:', err);
@@ -91,41 +81,36 @@ exports.googleLogin = async (req, res) => {
   res.status(501).json({ message: 'Google login is temporarily unavailable' });
 };
 
+function socialError(res, err, fallbackMessage) {
+  if (err.status) {
+    return res.status(err.status).json({ error: err.message });
+  }
+  console.error(fallbackMessage, err.message);
+  return res.status(401).json({ error: fallbackMessage });
+}
+
 // Social Login: Facebook
 exports.facebookLogin = async (req, res) => {
   const { accessToken, userID } = req.body;
   try {
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Facebook access token is required' });
+    }
     const db = await getMainDb();
-    // Verify token and get user info
-    const fbUrl = `https://graph.facebook.com/v12.0/${userID}?fields=id,name,email&access_token=${accessToken}`;
+    const fbUrl = `https://graph.facebook.com/v12.0/${encodeURIComponent(userID || 'me')}?fields=id,name,email&access_token=${encodeURIComponent(accessToken)}`;
     const fbRes = await axios.get(fbUrl);
     const email = fbRes.data.email;
+    const facebook_id = fbRes.data.id || userID;
     if (!email) return res.status(400).json({ error: 'Facebook account has no email' });
 
-    // Check if user exists
-    let user = await db.collection('users').findOne({ email });
-
-    if (!user) {
-      const userDoc = {
-        email,
-        account_type: 'user',
-        full_name: fbRes.data.name,
-        facebook_id: userID,
-        created_at: new Date()
-      };
-      const result = await db.collection('users').insertOne(userDoc);
-      user = { _id: result.insertedId, ...userDoc };
-    }
-
-    const jwtToken = jwt.sign(
-      { user_id: user._id.toString(), role: user.account_type },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-    res.json({ token: jwtToken });
+    const user = await findOrCreateSocialUser(db, {
+      email,
+      full_name: fbRes.data.name,
+      facebook_id,
+    });
+    res.json({ token: issueAuthToken(user) });
   } catch (err) {
-    console.error('MongoDB Error:', err);
-    res.status(401).json({ error: 'Invalid Facebook token' });
+    socialError(res, err, 'Invalid Facebook token');
   }
 };
 
@@ -134,35 +119,13 @@ exports.appleLogin = async (req, res) => {
   const { idToken } = req.body;
   try {
     const db = await getMainDb();
-    // Apple ID token is a JWT, decode it
-    const decoded = jwt.decode(idToken, { complete: true });
-    if (!decoded || !decoded.payload || !decoded.payload.email) {
-      return res.status(400).json({ error: 'Invalid Apple token' });
-    }
-    const email = decoded.payload.email;
-
-    // Check if user exists
-    let user = await db.collection('users').findOne({ email });
-
-    if (!user) {
-      const userDoc = {
-        email,
-        account_type: 'user',
-        apple_sub: decoded.payload.sub,
-        created_at: new Date()
-      };
-      const result = await db.collection('users').insertOne(userDoc);
-      user = { _id: result.insertedId, ...userDoc };
-    }
-
-    const jwtToken = jwt.sign(
-      { user_id: user._id.toString(), role: user.account_type },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-    res.json({ token: jwtToken });
+    const payload = await verifyAppleIdToken(idToken);
+    const user = await findOrCreateSocialUser(db, {
+      email: payload.email,
+      apple_sub: payload.sub,
+    });
+    res.json({ token: issueAuthToken(user) });
   } catch (err) {
-    console.error('MongoDB Error:', err);
-    res.status(401).json({ error: 'Invalid Apple token' });
+    socialError(res, err, 'Invalid Apple token');
   }
 };

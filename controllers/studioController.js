@@ -2,6 +2,8 @@ const { ObjectId } = require('mongodb');
 const { getMainDb, getLessonsDb } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { uploadToCloudinary, deleteFromCloudinary, getCloudinaryPublicId } = require('../helpers/cloudinaryHelper');
+const { interactionLessonIds } = require('../helpers/lessonRef');
+const { decideWrite, versionMatchFilter, currentVersion } = require('../helpers/optimisticVersion');
 
 // Helper to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -593,7 +595,8 @@ exports.createLesson = async (req, res) => {
             voice: req.body.voice || 'inherit',
             introAudioUrl: req.body.introAudioUrl || null,
             created_at: new Date(),
-            updated_at: new Date()
+            updated_at: new Date(),
+            version: 0
         };
 
         const contentResult = await lessonsDb.collection('lessons').insertOne(lessonContent);
@@ -606,7 +609,8 @@ exports.createLesson = async (req, res) => {
             description: description || '',
             order: order || module.lessons.length,
             created_at: new Date(),
-            updated_at: new Date()
+            updated_at: new Date(),
+            version: 0
         };
 
         const metaResult = await mainDb.collection('lessons').insertOne(lessonMeta);
@@ -713,6 +717,7 @@ exports.getLesson = async (req, res) => {
 
         res.json({
             ...lesson,
+            version: currentVersion(lesson),
             description: mergedDescription,
             voice: mergedVoice,
             author: mergedAuthor,
@@ -740,7 +745,7 @@ exports.updateLesson = async (req, res) => {
         const lessonsDb = await getLessonsDb();
         const { id } = req.params;
         const user_id = req.user.user_id;
-        const { title, description, order, slides, settings } = req.validatedBody;
+        const { title, description, order, slides, settings, version: expectedVersion } = req.validatedBody;
 
         const lesson = await mainDb.collection('lessons').findOne({ _id: toObjectId(id) });
 
@@ -759,21 +764,30 @@ exports.updateLesson = async (req, res) => {
             return res.status(403).json({ error: 'Not authorized' });
         }
 
+        const decision = decideWrite(lesson, expectedVersion);
+        if (decision.action === 'conflict') {
+            return res.status(409).json({ error: 'Version conflict', version: decision.version });
+        }
+
         // Update metadata
         const metaUpdate = {};
         if (title) metaUpdate.title = title;
         if (description !== undefined) metaUpdate.description = description;
         if (order !== undefined) metaUpdate.order = order;
         metaUpdate.updated_at = new Date();
+        metaUpdate.version = decision.version;
 
-        await mainDb.collection('lessons').updateOne(
-            { _id: toObjectId(id) },
+        const metaResult = await mainDb.collection('lessons').updateOne(
+            { _id: toObjectId(id), ...versionMatchFilter(lesson) },
             { $set: metaUpdate }
         );
+        if (metaResult.matchedCount === 0) {
+            return res.status(409).json({ error: 'Version conflict', version: decision.version });
+        }
 
         // Update content if provided
         if (slides || settings || title || req.body.voice !== undefined || req.body.introAudioUrl !== undefined || req.body.introTextHash !== undefined) {
-            const contentUpdate = { updated_at: new Date() };
+            const contentUpdate = { updated_at: new Date(), version: decision.version };
             if (title) contentUpdate.title = title;
             if (slides) contentUpdate.slides = slides;
             if (settings) contentUpdate.settings = settings;
@@ -787,7 +801,7 @@ exports.updateLesson = async (req, res) => {
             );
         }
 
-        res.json({ message: 'Lesson updated successfully' });
+        res.json({ message: 'Lesson updated successfully', version: decision.version });
     } catch (error) {
         console.error('Error updating lesson:', error);
         res.status(500).json({ error: error.message });
@@ -1259,56 +1273,12 @@ exports.getStudioActivity = async (req, res) => {
 // Mark a student's open-ended component response (shortAnswer / fillInTheBlank)
 exports.markStudentResponse = async (req, res) => {
     try {
-        const db = await getMainDb();
         const interactionsDb = await getLessonsDb();
         const { studentId, lessonId, componentId } = req.params;
         const { score, isApproved } = req.body;
         const user_id = req.user.user_id;
 
-        let lesson = null;
-        let astLesson = null;
-        const objId = toObjectId(lessonId);
-
-        if (objId) {
-            lesson = await db.collection('lessons').findOne({ _id: objId });
-        }
-        if (!lesson) {
-            lesson = await db.collection('lessons').findOne({
-                $or: [
-                    { lesson_data: lessonId },
-                    { _id: lessonId }
-                ]
-            });
-        }
-
-        if (lesson && lesson.lesson_data) {
-            const astObjId = toObjectId(lesson.lesson_data);
-            astLesson = await interactionsDb.collection('lessons').findOne({
-                $or: [
-                    { _id: astObjId || lesson.lesson_data },
-                    { id: lesson.lesson_data.toString() }
-                ]
-            });
-        } else {
-            astLesson = await interactionsDb.collection('lessons').findOne({
-                $or: [
-                    { id: lessonId },
-                    { _id: objId || lessonId }
-                ]
-            });
-        }
-
-        const possibleLessonIds = Array.from(new Set([
-            lessonId,
-            toObjectId(lessonId),
-            lesson?._id,
-            lesson?._id?.toString(),
-            lesson?.lesson_data,
-            lesson?.lesson_data?.toString(),
-            astLesson?.id,
-            astLesson?._id,
-            astLesson?._id?.toString()
-        ].filter(Boolean)));
+        const possibleLessonIds = await interactionLessonIds(lessonId);
 
         const studentObjId = toObjectId(studentId);
         const possibleUserIds = Array.from(new Set([
@@ -1401,54 +1371,10 @@ exports.markStudentResponse = async (req, res) => {
 // Reset a student's component response allowing them to retry
 exports.resetStudentComponentResponse = async (req, res) => {
     try {
-        const db = await getMainDb();
         const interactionsDb = await getLessonsDb();
         const { studentId, lessonId, componentId } = req.params;
 
-        let lesson = null;
-        let astLesson = null;
-        const objId = toObjectId(lessonId);
-
-        if (objId) {
-            lesson = await db.collection('lessons').findOne({ _id: objId });
-        }
-        if (!lesson) {
-            lesson = await db.collection('lessons').findOne({
-                $or: [
-                    { lesson_data: lessonId },
-                    { _id: lessonId }
-                ]
-            });
-        }
-
-        if (lesson && lesson.lesson_data) {
-            const astObjId = toObjectId(lesson.lesson_data);
-            astLesson = await interactionsDb.collection('lessons').findOne({
-                $or: [
-                    { _id: astObjId || lesson.lesson_data },
-                    { id: lesson.lesson_data.toString() }
-                ]
-            });
-        } else {
-            astLesson = await interactionsDb.collection('lessons').findOne({
-                $or: [
-                    { id: lessonId },
-                    { _id: objId || lessonId }
-                ]
-            });
-        }
-
-        const possibleLessonIds = Array.from(new Set([
-            lessonId,
-            toObjectId(lessonId),
-            lesson?._id,
-            lesson?._id?.toString(),
-            lesson?.lesson_data,
-            lesson?.lesson_data?.toString(),
-            astLesson?.id,
-            astLesson?._id,
-            astLesson?._id?.toString()
-        ].filter(Boolean)));
+        const possibleLessonIds = await interactionLessonIds(lessonId);
 
         const studentObjId = toObjectId(studentId);
         const possibleUserIds = Array.from(new Set([

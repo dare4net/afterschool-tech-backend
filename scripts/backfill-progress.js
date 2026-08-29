@@ -91,11 +91,13 @@ async function backfill() {
 
         // Create the missing completion record
         const score = interaction.lessonState?.score || 0;
+        const maxScore = interaction.lessonState?.totalScore || 0;
         await db.collection('lesson_completions').insertOne({
             user_id: userId,
             lesson_id: mainLesson._id,
             completed_at: interaction.lastUpdated ? new Date(interaction.lastUpdated) : new Date(),
             score: score,
+            max_score: maxScore,
             time_spent: 0,
             backfilled: true // Mark so we know it was retroactively created
         });

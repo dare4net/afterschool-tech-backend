@@ -11,6 +11,13 @@ const {
   StudentAchievement
 } = require('../models/models');
 
+// Get all achievements for a student (catalog + earned status)
+router.get('/student', achievementController.getStudentAchievements);
+
+// Evaluate achievements based on a system event
+router.post('/evaluate', achievementController.evaluateEvent);
+
+// Legacy routes preserved below
 // Get all achievements
 router.get('/', async (req, res) => {
   const achievements = await Achievement.findAll();

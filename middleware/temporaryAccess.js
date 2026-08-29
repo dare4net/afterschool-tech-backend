@@ -1,9 +1,6 @@
-const { MongoClient, ObjectId } = require('mongodb');
+const { ObjectId } = require('mongodb');
 const { accessCheck } = require('../utils/accessChecker');
-
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
-const mainDb = client.db('afterschooltech');
+const { getMainDb } = require('../config/database');
 
 // The ObjectId of your dummy lesson for access control
 const TEMPORARY_ACCESS_LESSON_ID = '687f80c7d4187f2163d7365b'; // Replace with your actual lesson ID
@@ -19,6 +16,7 @@ const temporaryAccessMiddleware = async (req, res, next) => {
   console.log('[TEMP ACCESS] Checking access for auth route');
 
   try {
+    const mainDb = await getMainDb();
     const dummyLesson = await mainDb.collection('lessons').findOne({
       _id: new ObjectId(TEMPORARY_ACCESS_LESSON_ID)
     });
