@@ -18,6 +18,8 @@ const EMPTY_PROGRESS = {
     perfectLiveSubmits: 0,
     perfectPracticeSubmits: 0,
     submitsByType: {},
+    submitsByLesson: {},
+    submitsByComponent: {},
 };
 
 async function col() {

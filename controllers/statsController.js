@@ -2,6 +2,7 @@ const { getAuthenticatedUserId } = require('../helpers/actorUser');
 const { getOrCreateProgress, gatherMissionStats, recordProgressEvent } = require('../helpers/studentProgress');
 const walletRepo = require('../repositories/walletRepo');
 const statsRepo = require('../repositories/statsRepo');
+const prideStats = require('../helpers/prideStats');
 
 /**
  * Get unified stats summary for a student's dashboard
@@ -53,6 +54,8 @@ exports.getStudentStats = async (req, res) => {
                 perfectLiveSubmits: missionStats.perfectLiveSubmits,
                 perfectPracticeSubmits: missionStats.perfectPracticeSubmits,
                 submitsByType: missionStats.submitsByType,
+                submitsByLesson: missionStats.submitsByLesson,
+                submitsByComponent: missionStats.submitsByComponent,
             }
         });
     } catch (err) {
@@ -67,7 +70,7 @@ exports.recordProgressEvent = async (req, res) => {
         if (!userId) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
-        const { eventType, isFirstAttempt, percentage, mode, type, amount, lessonId, programId } = req.validatedBody;
+        const { eventType, isFirstAttempt, percentage, mode, type, amount, lessonId, programId, componentId, completionTimeMs } = req.validatedBody;
 
         const result = await recordProgressEvent(userId, eventType, {
             isFirstAttempt: Boolean(isFirstAttempt),
@@ -77,11 +80,24 @@ exports.recordProgressEvent = async (req, res) => {
             amount,
             lessonId,
             programId,
+            componentId,
+            completionTimeMs,
         });
         if (result.error) {
             return res.status(result.status || 400).json({ error: result.error });
         }
-        res.json({ success: true, ...result });
+        const prideResult = await prideStats.syncFromProgressEvent(userId, eventType, {
+            isFirstAttempt: Boolean(isFirstAttempt),
+            percentage: typeof percentage === 'number' ? percentage : 0,
+            mode,
+            type,
+            amount,
+            lessonId,
+            programId,
+            componentId,
+            completionTimeMs,
+        }, result);
+        res.json({ success: true, ...result, golds: prideResult?.golds || [] });
     } catch (err) {
         console.error('[STATS] Error recording progress event:', err);
         res.status(500).json({ error: 'Internal server error' });

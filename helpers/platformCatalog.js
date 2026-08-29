@@ -1,4 +1,5 @@
 const catalogRepo = require('../repositories/catalogRepo');
+const { allocateCatalogId } = require('./catalogIds');
 const { PLATFORM_MISSIONS, sanitizeMission, sanitizeFilters, getMissionById, missionsForLevel } = require('./platformMissions');
 const {
     PLATFORM_ACHIEVEMENTS,
@@ -100,12 +101,19 @@ function pickDefined(obj) {
 
 async function createMission(input) {
     await ensureSeeded();
-    const existing = await catalogRepo.findMission(input.id);
-    if (existing) {
+    const existingDocs = await catalogRepo.listMissions({});
+    const existingIds = existingDocs.map((doc) => doc.id).filter(Boolean);
+    const id = input.id || allocateCatalogId({
+        kind: 'mission',
+        title: input.title,
+        level: input.level,
+        existingIds,
+    });
+    if (existingIds.includes(id)) {
         return { error: 'Mission id already exists', status: 409 };
     }
     const record = await catalogRepo.insertMission({
-        id: input.id,
+        id,
         level: input.level,
         title: input.title,
         description: input.description,
@@ -165,12 +173,18 @@ async function listAchievements({ includeDisabled = false } = {}) {
 
 async function createAchievement(input) {
     await ensureSeeded();
-    const existing = await catalogRepo.findAchievement(input.id);
-    if (existing) {
+    const existingDocs = await catalogRepo.listAchievements({});
+    const existingIds = existingDocs.map((doc) => doc.id).filter(Boolean);
+    const id = input.id || allocateCatalogId({
+        kind: 'achievement',
+        title: input.title,
+        existingIds,
+    });
+    if (existingIds.includes(id)) {
         return { error: 'Achievement id already exists', status: 409 };
     }
     const record = await catalogRepo.insertAchievement({
-        id: input.id,
+        id,
         title: input.title,
         description: input.description,
         icon: input.icon,

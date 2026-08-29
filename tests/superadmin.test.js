@@ -123,5 +123,6 @@ describe('superadmin wiring', () => {
         assert.match(superadmin, /requireSuperadmin/);
         assert.match(superadmin, /\/catalog\/missions/);
         assert.match(superadmin, /\/catalog\/achievements/);
+        assert.match(superadmin, /\/catalog\/targets/);
     });
 });

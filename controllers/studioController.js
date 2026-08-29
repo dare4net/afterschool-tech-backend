@@ -4,6 +4,8 @@ const { v4: uuidv4 } = require('uuid');
 const { uploadToCloudinary, deleteFromCloudinary, getCloudinaryPublicId } = require('../helpers/cloudinaryHelper');
 const { interactionLessonIds } = require('../helpers/lessonRef');
 const { decideWrite, versionMatchFilter, currentVersion } = require('../helpers/optimisticVersion');
+const curriculumDrops = require('../helpers/curriculumDrops');
+const { log } = require('../helpers/logger');
 
 // Helper to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -215,6 +217,15 @@ exports.updateProgram = async (req, res) => {
             { _id: toObjectId(id) },
             { $set: updateData }
         );
+
+        try {
+            await curriculumDrops.handleProgramWrite({
+                before: program,
+                after: { ...program, ...updateData },
+            });
+        } catch (dropErr) {
+            log('warn', 'curriculum_program_write_failed', { msg: dropErr.message });
+        }
 
         res.json({ message: 'Program updated successfully' });
     } catch (error) {
@@ -462,6 +473,17 @@ exports.updateModule = async (req, res) => {
             { $set: updateData }
         );
 
+        try {
+            await curriculumDrops.handleModuleWrite({
+                before: module,
+                after: { ...module, ...updateData },
+                program,
+                actorId: user_id,
+            });
+        } catch (dropErr) {
+            log('warn', 'curriculum_module_write_failed', { msg: dropErr.message });
+        }
+
         res.json({ message: 'Module updated successfully' });
     } catch (error) {
         console.error('Error updating module:', error);
@@ -624,6 +646,12 @@ exports.createLesson = async (req, res) => {
             }
         );
 
+        try {
+            await curriculumDrops.recalcProgram(program._id);
+        } catch (dropErr) {
+            log('warn', 'curriculum_lesson_create_failed', { msg: dropErr.message });
+        }
+
         res.status(201).json({
             message: 'Lesson created successfully',
             lesson: {
@@ -745,7 +773,7 @@ exports.updateLesson = async (req, res) => {
         const lessonsDb = await getLessonsDb();
         const { id } = req.params;
         const user_id = req.user.user_id;
-        const { title, description, order, slides, settings, version: expectedVersion } = req.validatedBody;
+        const { title, description, order, slides, settings, version: expectedVersion, is_published } = req.validatedBody;
 
         const lesson = await mainDb.collection('lessons').findOne({ _id: toObjectId(id) });
 
@@ -774,6 +802,7 @@ exports.updateLesson = async (req, res) => {
         if (title) metaUpdate.title = title;
         if (description !== undefined) metaUpdate.description = description;
         if (order !== undefined) metaUpdate.order = order;
+        if (is_published !== undefined) metaUpdate.is_published = is_published;
         metaUpdate.updated_at = new Date();
         metaUpdate.version = decision.version;
 
@@ -799,6 +828,18 @@ exports.updateLesson = async (req, res) => {
                 { _id: lesson.lesson_data },
                 { $set: contentUpdate }
             );
+        }
+
+        try {
+            await curriculumDrops.handleLessonWrite({
+                before: lesson,
+                after: { ...lesson, ...metaUpdate },
+                module,
+                program,
+                actorId: user_id,
+            });
+        } catch (dropErr) {
+            log('warn', 'curriculum_lesson_write_failed', { msg: dropErr.message });
         }
 
         res.json({ message: 'Lesson updated successfully', version: decision.version });

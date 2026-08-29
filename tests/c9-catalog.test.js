@@ -27,6 +27,19 @@ describe('C9 expandable catalog', () => {
         assert.equal(countForMission(liveQuizzes, {
             submitsByType: { quiz: { perfectLive: 3 } },
         }), 3);
+
+        const thisHangman = {
+            id: 'l3-this-hangman',
+            stat: 'submits',
+            targetCount: 1,
+            filters: { lessonId: 'lesson-1', componentId: 'hang-1', type: 'hangman' },
+        };
+        assert.equal(countForMission(thisHangman, {
+            submitsByComponent: { 'lesson-1__hang-1': { total: 1 } },
+        }), 1);
+        assert.equal(countForMission(thisHangman, {
+            submitsByType: { hangman: { total: 4 } },
+        }), 0);
     });
 
     it('evaluates achievements from JSON rules, not JS functions', () => {
@@ -96,6 +109,16 @@ describe('C9 expandable catalog', () => {
         });
         assert.equal(filtered.filters.perfect, true);
         assert.equal(createMissionSchema.parse({
+            id: 'l3-this-hangman',
+            level: 3,
+            title: 'This Hangman',
+            description: 'Complete the hangman in lesson 1',
+            targetCount: 1,
+            rewardStars: 4,
+            stat: 'submits',
+            filters: { lessonId: 'lesson-1', componentId: 'hang-1', type: 'hangman' },
+        }).filters.componentId, 'hang-1');
+        assert.equal(createMissionSchema.parse({
             id: 'l3-finish-two',
             level: 3,
             title: 'Finisher',
@@ -104,6 +127,44 @@ describe('C9 expandable catalog', () => {
             rewardStars: 6,
             stat: 'lessonsCompleted',
         }).stat, 'lessonsCompleted');
+
+        const autoIdMission = createMissionSchema.parse({
+            level: 3,
+            title: 'Double Scholar',
+            description: 'Review 2 lessons',
+            targetCount: 2,
+            rewardStars: 6,
+            stat: 'lessonsReviewed',
+        });
+        assert.equal(autoIdMission.id, undefined);
+        assert.equal(createAchievementSchema.parse({
+            title: 'Quiz Ace',
+            description: 'Score 100 on a quiz',
+            rewardStars: 4,
+            eventType: 'COMPONENT_SUBMITTED',
+            rules: [{ field: 'type', op: 'eq', value: 'quiz' }],
+        }).id, undefined);
+    });
+
+    it('allocates unique catalog ids from title so Superadmin does not invent slugs', () => {
+        const { allocateCatalogId } = require('../helpers/catalogIds');
+        assert.equal(allocateCatalogId({
+            kind: 'mission',
+            title: 'Double Scholar',
+            level: 3,
+            existingIds: [],
+        }), 'l3-double-scholar');
+        assert.equal(allocateCatalogId({
+            kind: 'mission',
+            title: 'Double Scholar',
+            level: 3,
+            existingIds: ['l3-double-scholar'],
+        }), 'l3-double-scholar-2');
+        assert.equal(allocateCatalogId({
+            kind: 'achievement',
+            title: 'Quiz Ace',
+            existingIds: ['quiz-ace'],
+        }), 'quiz-ace-2');
     });
 
     it('exposes student catalog GET and superadmin CRUD', () => {
@@ -115,6 +176,7 @@ describe('C9 expandable catalog', () => {
         assert.equal(studio.includes('/catalog/missions'), false);
         assert.match(superadmin, /\/catalog\/missions/);
         assert.match(superadmin, /\/catalog\/achievements/);
+        assert.match(superadmin, /\/catalog\/targets/);
         assert.match(server, /app\.use\('\/api\/superadmin'/);
     });
 });

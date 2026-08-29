@@ -82,6 +82,7 @@ const updateLessonSchema = z.object({
     voice: z.string().optional(),
     introAudioUrl: z.string().nullable().optional(),
     version: z.number().int().min(0).optional(),
+    is_published: z.boolean().optional(),
 });
 
 const achievementRuleSchema = z.object({
@@ -95,10 +96,17 @@ const missionFiltersSchema = z.object({
     mode: z.enum(['live', 'practice']).optional(),
     type: z.string().min(1).max(64).optional(),
     perfect: z.boolean().optional(),
+    lessonId: z.string().min(1).max(128).optional(),
+    componentId: z.string().min(1).max(128).optional(),
 }).nullish();
 
+const optionalCatalogId = z.preprocess(
+    (value) => (value === '' || value === null ? undefined : value),
+    catalogIdSchema.optional()
+);
+
 const createMissionSchema = z.object({
-    id: catalogIdSchema,
+    id: optionalCatalogId,
     level: z.number().int().min(1).max(99),
     title: z.string().min(1).max(80),
     description: z.string().min(1).max(240),
@@ -112,7 +120,7 @@ const createMissionSchema = z.object({
 const updateMissionSchema = createMissionSchema.omit({ id: true }).partial();
 
 const createAchievementSchema = z.object({
-    id: catalogIdSchema,
+    id: optionalCatalogId,
     title: z.string().min(1).max(80),
     description: z.string().min(1).max(240),
     icon: z.string().min(1).max(32).optional().default('award'),

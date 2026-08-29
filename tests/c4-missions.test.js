@@ -43,6 +43,9 @@ describe('C4 mission and level routes', () => {
         assert.match(source, /lessonsReviewed/);
         assert.match(source, /lifetimeStarsEarned/);
         assert.match(source, /submitsByType/);
+        assert.match(source, /submitsByLesson/);
+        assert.match(source, /submitsByComponent/);
+        assert.match(source, /componentId/);
         assert.equal(source.includes('req.query.userId'), false);
     });
 });

@@ -1,4 +1,4 @@
-const { getMissionById, missionsForLevel, isMissionEarned, sanitizeTypeKey } = require('./platformMissions');
+const { getMissionById, missionsForLevel, isMissionEarned, sanitizeTypeKey, sanitizeProgressKey, componentProgressKey } = require('./platformMissions');
 const defaultProgressRepo = require('../repositories/progressRepo');
 const defaultWalletRepo = require('../repositories/walletRepo');
 const defaultStatsRepo = require('../repositories/statsRepo');
@@ -40,6 +40,8 @@ function createStudentProgress({
             perfectLiveSubmits: progress.perfectLiveSubmits || 0,
             perfectPracticeSubmits: progress.perfectPracticeSubmits || 0,
             submitsByType: progress.submitsByType || {},
+            submitsByLesson: progress.submitsByLesson || {},
+            submitsByComponent: progress.submitsByComponent || {},
         };
     }
 
@@ -135,21 +137,27 @@ function createStudentProgress({
             const typeKey = sanitizeTypeKey(payload.type);
             const mode = payload.mode === 'live' || payload.mode === 'practice' ? payload.mode : '';
             const perfect = Boolean(payload.isFirstAttempt) && Number(payload.percentage) >= 100;
+            const lessonKey = sanitizeProgressKey(payload.lessonId);
+            const componentKey = componentProgressKey(payload.lessonId, payload.componentId);
             const inc = { totalSubmits: 1 };
+            const bumpBag = (prefix, nestType) => {
+                inc[`${prefix}.total`] = 1;
+                if (mode) inc[`${prefix}.${mode}`] = 1;
+                if (perfect) {
+                    inc[`${prefix}.perfect`] = 1;
+                    if (mode === 'live') inc[`${prefix}.perfectLive`] = 1;
+                    if (mode === 'practice') inc[`${prefix}.perfectPractice`] = 1;
+                }
+                if (nestType && typeKey) bumpBag(`${prefix}.byType.${typeKey}`, false);
+            };
             if (mode) inc[`${mode}Submits`] = 1;
-            if (typeKey) {
-                inc[`submitsByType.${typeKey}.total`] = 1;
-                if (mode) inc[`submitsByType.${typeKey}.${mode}`] = 1;
-            }
+            if (typeKey) bumpBag(`submitsByType.${typeKey}`, false);
+            if (lessonKey) bumpBag(`submitsByLesson.${lessonKey}`, true);
+            if (componentKey) bumpBag(`submitsByComponent.${componentKey}`, false);
             if (perfect) {
                 inc.perfectSubmits = 1;
                 if (mode === 'live') inc.perfectLiveSubmits = 1;
                 if (mode === 'practice') inc.perfectPracticeSubmits = 1;
-                if (typeKey) {
-                    inc[`submitsByType.${typeKey}.perfect`] = 1;
-                    if (mode === 'live') inc[`submitsByType.${typeKey}.perfectLive`] = 1;
-                    if (mode === 'practice') inc[`submitsByType.${typeKey}.perfectPractice`] = 1;
-                }
                 inc.consecutiveCorrect = 1;
             } else {
                 update.$set.consecutiveCorrect = 0;
@@ -172,6 +180,8 @@ function createStudentProgress({
             practiceSubmits: next.practiceSubmits || 0,
             perfectSubmits: next.perfectSubmits || 0,
             submitsByType: next.submitsByType || {},
+            submitsByLesson: next.submitsByLesson || {},
+            submitsByComponent: next.submitsByComponent || {},
         };
     }
 

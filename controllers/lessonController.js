@@ -3,6 +3,7 @@ const { getMainDb, getLessonsDb, client } = require('../config/database');
 const { accessCheck } = require('../utils/accessChecker');
 const { resolveLessonViewerUserId } = require('../helpers/actorUser');
 const { resolveLessonRef } = require('../helpers/lessonRef');
+const curriculumDrops = require('../helpers/curriculumDrops');
 
 // Redis disabled
 const redis = null;
@@ -221,56 +222,10 @@ exports.markLessonCompleted = async (req, res) => {
         }
       });
 
-      // ─── Post-transaction: recalculate percent_complete ───────────────────
+      // ─── Post-transaction: recalculate percent_complete from published lessons ─
       if (programForProgress) {
         try {
-          // 1. Get all module ObjectIds for this program
-          const moduleObjectIds = (programForProgress.modules || [])
-            .map(id => toObjectId(id))
-            .filter(Boolean);
-
-          // 2. Get all lessons across all modules in this program
-          const allProgramLessons = await db.collection('lessons')
-            .find({ module_id: { $in: moduleObjectIds } })
-            .project({ _id: 1, module_id: 1 })
-            .toArray();
-
-          const totalLessons = allProgramLessons.length;
-
-          if (totalLessons > 0) {
-            // 3. Count how many of those lessons this user has completed
-            const completedCount = await db.collection('lesson_completions').countDocuments({
-              user_id: userId,
-              lesson_id: { $in: allProgramLessons.map(l => l._id) }
-            });
-
-            const percentComplete = Math.round((completedCount / totalLessons) * 100);
-
-            // 4. Determine which modules are fully completed
-            const completedLessonIds = (await db.collection('lesson_completions')
-              .find({ user_id: userId, lesson_id: { $in: allProgramLessons.map(l => l._id) } })
-              .project({ lesson_id: 1 })
-              .toArray()).map(c => c.lesson_id.toString());
-
-            const completedModuleIds = moduleObjectIds.filter(modId => {
-              const modLessons = allProgramLessons.filter(l => l.module_id.toString() === modId.toString());
-              return modLessons.length > 0 && modLessons.every(l => completedLessonIds.includes(l._id.toString()));
-            });
-
-            // 5. Write percent_complete and completed_modules back to the registration
-            await db.collection('program_registrations').updateOne(
-              { user_id: userId, program_id: programForProgress._id },
-              {
-                $set: {
-                  'progress.percent_complete': percentComplete,
-                  'progress.completed_modules': completedModuleIds,
-                  last_activity: new Date()
-                }
-              }
-            );
-
-            console.log(`[LESSON] Progress updated: ${completedCount}/${totalLessons} lessons = ${percentComplete}% for program ${programForProgress._id}`);
-          }
+          await curriculumDrops.persistProgress(userId, programForProgress._id);
         } catch (progressErr) {
           // Non-fatal — log and continue, the completion itself was saved
           console.error('[LESSON] Failed to recalculate progress (non-fatal):', progressErr);
@@ -360,10 +315,18 @@ exports.getModuleLessons = async (req, res) => {
     const lessonsDb = await getLessonsDb();
 
     // Get all lessons for the module from mainDb
-    const lessons = await db.collection('lessons')
+    let lessons = await db.collection('lessons')
       .find({ module_id: toObjectId(moduleId) })
       .sort({ order: 1 })
       .toArray();
+
+    if (req.user?.role === 'student') {
+      const parentModule = await db.collection('modules').findOne({ _id: toObjectId(moduleId) });
+      if (!curriculumDrops.isLive(parentModule)) {
+        return res.json([]);
+      }
+      lessons = lessons.filter((lesson) => curriculumDrops.isLive(lesson));
+    }
 
     if (lessons.length === 0) {
       return res.json([]);

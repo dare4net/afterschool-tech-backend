@@ -4,6 +4,8 @@ const platformCatalog = require('../helpers/platformCatalog');
 const achievementRepo = require('../repositories/achievementRepo');
 const walletRepo = require('../repositories/walletRepo');
 const { recordProgressEvent } = require('../helpers/studentProgress');
+const { notify } = require('../helpers/notify');
+const prideStats = require('../helpers/prideStats');
 
 exports.getStudentAchievements = async (req, res) => {
     try {
@@ -47,6 +49,7 @@ exports.evaluateEvent = async (req, res) => {
         const catalog = await platformCatalog.listAchievements({ includeDisabled: false });
         const matching = catalog.filter((a) => a.eventType === eventType);
         const newlyEarned = [];
+        let progressAfter = {};
 
         for (const ach of matching) {
             if (!achievementMatches(ach, eventType, payload)) continue;
@@ -74,8 +77,23 @@ exports.evaluateEvent = async (req, res) => {
                     transaction,
                     upsert: true,
                 });
-                await recordProgressEvent(userId, 'STARS_AWARDED', { amount: ach.rewardStars });
+                progressAfter = await recordProgressEvent(userId, 'STARS_AWARDED', { amount: ach.rewardStars });
             }
+
+            await notify({
+                userId,
+                type: 'ACHIEVEMENT_EARNED',
+                title: ach.title || 'Achievement unlocked',
+                body: ach.rewardStars ? `+${ach.rewardStars} Stars` : 'Badge earned',
+                href: '/dashboard/student/progress',
+                payload: { achievementId: ach.id },
+            });
+        }
+
+        if (newlyEarned.length) {
+            await prideStats.syncFromProgressEvent(userId, 'ACHIEVEMENT_EARNED', {
+                count: newlyEarned.length,
+            }, progressAfter);
         }
 
         res.json({

@@ -68,6 +68,18 @@ function sanitizeTypeKey(type) {
     return type.replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
 }
 
+function sanitizeProgressKey(value) {
+    if (typeof value !== 'string') return '';
+    return value.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
+}
+
+function componentProgressKey(lessonId, componentId) {
+    const componentKey = sanitizeProgressKey(componentId);
+    if (!componentKey) return '';
+    const lessonKey = sanitizeProgressKey(lessonId);
+    return lessonKey ? `${lessonKey}__${componentKey}` : componentKey;
+}
+
 function sanitizeFilters(filters) {
     if (!filters || typeof filters !== 'object') return undefined;
     const next = {};
@@ -75,6 +87,10 @@ function sanitizeFilters(filters) {
     const type = sanitizeTypeKey(filters.type);
     if (type) next.type = type;
     if (filters.perfect === true) next.perfect = true;
+    const lessonId = sanitizeProgressKey(filters.lessonId);
+    if (lessonId) next.lessonId = lessonId;
+    const componentId = sanitizeProgressKey(filters.componentId);
+    if (componentId) next.componentId = componentId;
     return Object.keys(next).length ? next : undefined;
 }
 
@@ -103,18 +119,31 @@ function missionsForLevel(level) {
     return PLATFORM_MISSIONS.filter((m) => m.level === level && m.enabled !== false).map(sanitizeMission);
 }
 
+function countFromBag(bag, mode, perfect) {
+    if (!bag) return 0;
+    if (perfect && mode === 'live') return Number(bag.perfectLive) || 0;
+    if (perfect && mode === 'practice') return Number(bag.perfectPractice) || 0;
+    if (perfect) return Number(bag.perfect) || 0;
+    if (mode) return Number(bag[mode]) || 0;
+    return Number(bag.total) || 0;
+}
+
 function countSubmits(stats, filters = {}) {
     const type = sanitizeTypeKey(filters.type);
     const mode = filters.mode === 'live' || filters.mode === 'practice' ? filters.mode : '';
     const perfect = filters.perfect === true;
-    const bag = type ? (stats?.submitsByType?.[type] || {}) : null;
+    const lessonId = sanitizeProgressKey(filters.lessonId);
+    const componentId = sanitizeProgressKey(filters.componentId);
 
-    if (bag) {
-        if (perfect && mode) return Number(bag[`perfect${mode === 'live' ? 'Live' : 'Practice'}`]) || 0;
-        if (perfect) return Number(bag.perfect) || 0;
-        if (mode) return Number(bag[mode]) || 0;
-        return Number(bag.total) || 0;
+    if (componentId) {
+        return countFromBag(stats?.submitsByComponent?.[componentProgressKey(lessonId, componentId)], mode, perfect);
     }
+    if (lessonId) {
+        const lessonBag = stats?.submitsByLesson?.[lessonId] || {};
+        if (type) return countFromBag(lessonBag.byType?.[type], mode, perfect);
+        return countFromBag(lessonBag, mode, perfect);
+    }
+    if (type) return countFromBag(stats?.submitsByType?.[type], mode, perfect);
     if (perfect && mode === 'live') return Number(stats?.perfectLiveSubmits) || 0;
     if (perfect && mode === 'practice') return Number(stats?.perfectPracticeSubmits) || 0;
     if (perfect) return Number(stats?.perfectSubmits) || 0;
@@ -138,6 +167,8 @@ module.exports = {
     MISSION_STAT_KEYS,
     PLATFORM_MISSIONS,
     sanitizeTypeKey,
+    sanitizeProgressKey,
+    componentProgressKey,
     sanitizeFilters,
     sanitizeMission,
     getMissionById,

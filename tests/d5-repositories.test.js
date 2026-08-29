@@ -7,6 +7,9 @@ const controllers = [
     'controllers/walletController.js',
     'controllers/statsController.js',
     'controllers/missionController.js',
+    'controllers/peopleController.js',
+    'controllers/notificationController.js',
+    'controllers/prideController.js',
 ];
 
 describe('D5 wallet/stats/mission repositories', () => {
@@ -23,10 +26,23 @@ describe('D5 wallet/stats/mission repositories', () => {
         const stats = readFileSync(join(__dirname, '../repositories/statsRepo.js'), 'utf8');
         const progress = readFileSync(join(__dirname, '../repositories/progressRepo.js'), 'utf8');
         const catalog = readFileSync(join(__dirname, '../repositories/catalogRepo.js'), 'utf8');
+        const notifications = readFileSync(join(__dirname, '../repositories/notificationsRepo.js'), 'utf8');
+        const users = readFileSync(join(__dirname, '../repositories/usersRepo.js'), 'utf8');
+        const pride = readFileSync(join(__dirname, '../repositories/prideRepo.js'), 'utf8');
+        const follows = readFileSync(join(__dirname, '../repositories/followsRepo.js'), 'utf8');
+        const curriculum = readFileSync(join(__dirname, '../repositories/curriculumRepo.js'), 'utf8');
         assert.match(wallet, /student_wallets/);
         assert.match(stats, /lesson_completions/);
         assert.match(progress, /student_progress/);
         assert.match(catalog, /platform_missions/);
         assert.match(catalog, /platform_achievements/);
+        assert.match(notifications, /notifications/);
+        assert.match(users, /handle: 1/);
+        assert.match(pride, /student_public_stats/);
+        assert.match(pride, /stats_ranks/);
+        assert.match(follows, /follows/);
+        assert.match(follows, /blocks/);
+        assert.match(curriculum, /program_registrations/);
+        assert.match(curriculum, /lesson_completions/);
     });
 });

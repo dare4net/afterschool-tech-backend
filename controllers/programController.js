@@ -1,5 +1,6 @@
 const { ObjectId } = require('mongodb');
 const { getMainDb, client } = require('../config/database');
+const curriculumDrops = require('../helpers/curriculumDrops');
 
 // Helper function to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -199,22 +200,24 @@ exports.getMyPrograms = async (req, res) => {
       .toArray();
 
     // Combine program data with registration details
-    const myPrograms = programs.map(program => {
+    const myPrograms = [];
+    for (const program of programs) {
       const registration = registrations.find(reg =>
         reg.program_id.toString() === program._id.toString()
       );
-
-      return {
+      const stored = registration?.progress || {
+        completed_modules: [],
+        completed_milestones: [],
+        current_module: null
+      };
+      const live = await curriculumDrops.progressForUser(userId, program._id);
+      myPrograms.push({
         ...program,
         registration_date: registration?.registered_at || null,
-        progress: registration?.progress || {
-          completed_modules: [],
-          completed_milestones: [],
-          current_module: null
-        },
+        progress: live ? { ...stored, ...live } : stored,
         status: registration?.status || 'active'
-      };
-    });
+      });
+    }
 
     // Sort by registration date, newest first
     myPrograms.sort((a, b) =>
@@ -247,9 +250,12 @@ exports.getMyProgramProgress = async (req, res) => {
       });
     }
 
+    const live = await curriculumDrops.progressForUser(userId, programId);
+    const progress = live ? { ...registration.progress, ...live } : registration.progress;
+
     res.json({
       program_id: programId,
-      progress: registration.progress,
+      progress,
       status: registration.status,
       last_activity: registration.last_activity
     });

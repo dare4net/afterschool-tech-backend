@@ -1,6 +1,8 @@
 const { getAuthenticatedUserId } = require('../helpers/actorUser');
 const { createStudentProgress } = require('../helpers/studentProgress');
 const platformCatalog = require('../helpers/platformCatalog');
+const { notify } = require('../helpers/notify');
+const prideStats = require('../helpers/prideStats');
 
 const progress = createStudentProgress({ catalog: platformCatalog });
 
@@ -30,6 +32,23 @@ exports.claimMission = async (req, res) => {
         if (result.error) {
             return res.status(result.status || 400).json({ error: result.error });
         }
+        if (!result.alreadyClaimed) {
+            await notify({
+                userId,
+                type: 'MISSION_CLAIMED',
+                title: result.title || 'Mission complete',
+                body: result.rewardStars ? `+${result.rewardStars} Stars claimed` : 'Reward claimed',
+                href: '/dashboard/student',
+                payload: { missionId: result.missionId },
+            });
+            const progressAfter = await progress.getOrCreateProgress(userId);
+            await prideStats.syncFromProgressEvent(userId, 'MISSION_CLAIMED', {
+                count: (result.completedMissions || []).length,
+            }, {
+                missionsClaimed: (result.completedMissions || []).length,
+                lifetimeStarsEarned: progressAfter.lifetimeStarsEarned,
+            });
+        }
         res.json({ success: true, ...result });
     } catch (err) {
         console.error('[MISSIONS] Error claiming mission:', err);
@@ -48,6 +67,14 @@ exports.levelUp = async (req, res) => {
         if (result.error) {
             return res.status(result.status || 400).json({ error: result.error });
         }
+        await notify({
+            userId,
+            type: 'LEVEL_UP',
+            title: `Level ${result.level} unlocked`,
+            body: 'New missions are ready. Keep going!',
+            href: '/dashboard/student',
+            payload: { level: result.level },
+        });
         res.json({ success: true, ...result });
     } catch (err) {
         console.error('[MISSIONS] Error leveling up:', err);

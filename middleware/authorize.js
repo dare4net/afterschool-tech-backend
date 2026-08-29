@@ -54,6 +54,14 @@ const authorize = async (req, res, next) => {
     }
 };
 
+const optionalAuthorize = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return next();
+    }
+    return authorize(req, res, next);
+};
+
 const authorizeRole = (...allowedRoles) => {
     return (req, res, next) => {
         if (!req.user) {
@@ -70,4 +78,4 @@ const authorizeRole = (...allowedRoles) => {
     };
 };
 
-module.exports = { authorize, authorizeRole };
+module.exports = { authorize, optionalAuthorize, authorizeRole };

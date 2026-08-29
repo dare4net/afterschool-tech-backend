@@ -74,11 +74,11 @@ const ACHIEVEMENT_EVENT_TYPES = [
 ];
 
 const ACHIEVEMENT_FIELDS_BY_EVENT = {
-    COMPONENT_SUBMITTED: ['type', 'mode', 'score', 'maxScore', 'percentage', 'attemptCount', 'isFirstAttempt', 'completionTimeMs', 'componentId'],
-    LIVE_EARLY_FINISH: ['type', 'completionTimeMs', 'timeLimitMs', 'componentId'],
-    LIVE_TIMEOUT: ['type', 'componentId'],
+    COMPONENT_SUBMITTED: ['type', 'mode', 'score', 'maxScore', 'percentage', 'attemptCount', 'isFirstAttempt', 'completionTimeMs', 'componentId', 'lessonId', 'programId'],
+    LIVE_EARLY_FINISH: ['type', 'completionTimeMs', 'timeLimitMs', 'componentId', 'lessonId'],
+    LIVE_TIMEOUT: ['type', 'componentId', 'lessonId'],
     LESSON_COMPLETED: ['lessonId', 'programId', 'score', 'maxScore', 'percentage'],
-    COMPONENT_RESET: ['type', 'componentId'],
+    COMPONENT_RESET: ['type', 'componentId', 'lessonId'],
     LESSON_REVIEWED: ['lessonId'],
     PROGRAM_ENROLLED: ['programId'],
     STARS_SPENT: ['amount', 'itemType'],
@@ -125,6 +125,8 @@ const statsEventBodySchema = z.object({
     amount: z.number().positive().optional(),
     lessonId: z.string().min(1).max(128).optional(),
     programId: z.string().min(1).max(128).optional(),
+    componentId: z.string().min(1).max(128).optional(),
+    completionTimeMs: z.number().min(0).max(3600000).optional(),
 });
 
 const claimMissionBodySchema = z.object({
@@ -163,6 +165,27 @@ const wordCloudAddBodySchema = z.object({
     lessonId: z.string().min(1),
     componentId: z.string().min(1),
     word: z.string().min(1).max(40),
+});
+
+const handleSchema = z.string().min(3).max(24).regex(
+    /^[a-z][a-z0-9_]*$/,
+    'Use a lowercase handle like maya_codes'
+);
+
+const accentColorSchema = z.enum(['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B']);
+
+const updateProfileBodySchema = z.object({
+    full_name: z.string().min(2).max(80).optional(),
+    handle: handleSchema.optional(),
+    isPublicProfile: z.boolean().optional(),
+    accentColor: accentColorSchema.optional(),
+});
+
+const markNotificationsBodySchema = z.object({
+    ids: z.array(z.string().min(1).max(64)).max(50).optional(),
+    all: z.boolean().optional(),
+}).refine((value) => value.all === true || (Array.isArray(value.ids) && value.ids.length > 0), {
+    message: 'Provide ids or all: true',
 });
 
 function zodDetails(error) {
@@ -204,7 +227,7 @@ function validateQuery(schema) {
 const CONTRACT_KEYS = {
     awardStars: ['amount', 'reason', 'componentId'],
     spendStars: ['amount', 'itemType'],
-    statsEvent: ['eventType', 'isFirstAttempt', 'percentage', 'mode', 'type', 'amount', 'lessonId', 'programId'],
+    statsEvent: ['eventType', 'isFirstAttempt', 'percentage', 'mode', 'type', 'amount', 'lessonId', 'programId', 'componentId', 'completionTimeMs'],
     claimMission: ['missionId'],
     interactionGet: ['lessonId', 'userId'],
     interactionSave: ['userId', 'lessonId', 'componentsState', 'lessonState', 'attemptsMap', 'version'],
@@ -231,6 +254,10 @@ module.exports = {
     liveGetQuerySchema,
     pollVoteBodySchema,
     wordCloudAddBodySchema,
+    handleSchema,
+    accentColorSchema,
+    updateProfileBodySchema,
+    markNotificationsBodySchema,
     validateBody,
     validateQuery,
 };

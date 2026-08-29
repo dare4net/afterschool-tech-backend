@@ -18,6 +18,7 @@ router.post('/login', loginLimiter, superadminController.login);
 router.use(requireSuperadmin);
 router.get('/me', superadminController.me);
 router.get('/catalog/meta', catalogController.getMeta);
+router.get('/catalog/targets', catalogController.listTargets);
 router.get('/catalog/missions', catalogController.listMissions);
 router.post('/catalog/missions', validate(createMissionSchema), catalogController.createMission);
 router.put('/catalog/missions/:id', validate(updateMissionSchema), catalogController.updateMission);

@@ -86,6 +86,12 @@ app.use('/api/achievements', studentAchievementRoutes);
 app.use('/api/interactions', interactionRoutes);
 app.use('/api/polls', pollRoutes);
 app.use('/api/wordclouds', wordCloudRoutes);
+const peopleRoutes = require('./routes/peopleRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+app.use('/api/people', peopleRoutes);
+app.use('/api/notifications', notificationRoutes);
+const prideRoutes = require('./routes/prideRoutes');
+app.use('/api/pride', prideRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

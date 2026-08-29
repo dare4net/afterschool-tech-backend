@@ -1,4 +1,5 @@
 const platformCatalog = require('../helpers/platformCatalog');
+const catalogTargetsRepo = require('../repositories/catalogTargetsRepo');
 const { MISSION_STAT_KEYS } = require('../helpers/platformMissions');
 const { ACHIEVEMENT_EVENT_TYPES, ACHIEVEMENT_FIELDS_BY_EVENT, RULE_OPS } = require('../helpers/platformAchievements');
 const { SCORED_COMPONENT_TYPES } = require('../contracts/platform');
@@ -20,6 +21,16 @@ exports.getMeta = async (_req, res) => {
         achievementFieldsByEvent: ACHIEVEMENT_FIELDS_BY_EVENT,
         ruleOps: RULE_OPS,
     });
+};
+
+exports.listTargets = async (_req, res) => {
+    try {
+        const lessons = await catalogTargetsRepo.listLessonTargets();
+        res.json({ success: true, lessons });
+    } catch (err) {
+        console.error('[CATALOG] Error listing lesson targets:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 };
 
 exports.listMissions = async (_req, res) => {

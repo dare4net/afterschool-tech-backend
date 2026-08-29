@@ -233,6 +233,13 @@ describe('G1 expandable progress facts', () => {
             targetCount: 1,
             filters: { mode: 'live', type: 'quiz', perfect: true },
         }, stats), 1);
+        assert.equal(countForMission({
+            stat: 'submits',
+            targetCount: 1,
+            filters: { lessonId: 'lesson-9', componentId: 'hang-1' },
+        }, {
+            submitsByComponent: { 'lesson-9__hang-1': { total: 1 } },
+        }), 1);
         assert.equal(stats.lifetimeStarsEarned, 7);
         assert.equal(stats.lessonsCompleted, 1);
     });

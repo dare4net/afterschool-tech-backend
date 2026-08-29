@@ -1,6 +1,7 @@
 const { getAuthenticatedUserId } = require('../helpers/actorUser');
 const walletRepo = require('../repositories/walletRepo');
 const { recordProgressEvent } = require('../helpers/studentProgress');
+const prideStats = require('../helpers/prideStats');
 
 /**
  * Get current star wallet balance and transaction history for a user
@@ -43,7 +44,8 @@ exports.awardStars = async (req, res) => {
             transaction,
             upsert: true,
         });
-        await recordProgressEvent(userId, 'STARS_AWARDED', { amount });
+        const progressAfter = await recordProgressEvent(userId, 'STARS_AWARDED', { amount });
+        await prideStats.syncFromProgressEvent(userId, 'STARS_AWARDED', { amount }, progressAfter);
 
         res.json({
             success: true,
