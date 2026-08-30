@@ -386,6 +386,7 @@ describe('W3 people wiring', () => {
         assert.match(controller, /wall/);
         assert.match(controller, /FOLLOWERS_CHANGED/);
         assert.match(controller, /accentColor/);
+        assert.match(controller, /avatarId/);
         assert.match(controller, /bestCrown/);
         assert.match(read('helpers/publicProfile.js'), /ACCENT_COLORS/);
         assert.match(read('controllers/prideController.js'), /bestCrown/);

@@ -71,10 +71,13 @@ const ACHIEVEMENT_EVENT_TYPES = [
     'PROGRAM_ENROLLED',
     'STARS_SPENT',
     'STARS_AWARDED',
+    'AUDIO_REPLAYED',
+    'HINT_USED',
+    'POLL_VOTED',
 ];
 
 const ACHIEVEMENT_FIELDS_BY_EVENT = {
-    COMPONENT_SUBMITTED: ['type', 'mode', 'score', 'maxScore', 'percentage', 'attemptCount', 'isFirstAttempt', 'completionTimeMs', 'componentId', 'lessonId', 'programId'],
+    COMPONENT_SUBMITTED: ['type', 'mode', 'score', 'maxScore', 'percentage', 'attemptCount', 'isFirstAttempt', 'completionTimeMs', 'componentId', 'lessonId', 'programId', 'wrongGuesses', 'memoryFlips', 'jigsawMoves', 'testsPassed'],
     LIVE_EARLY_FINISH: ['type', 'completionTimeMs', 'timeLimitMs', 'componentId', 'lessonId'],
     LIVE_TIMEOUT: ['type', 'componentId', 'lessonId'],
     LESSON_COMPLETED: ['lessonId', 'programId', 'score', 'maxScore', 'percentage'],
@@ -83,6 +86,9 @@ const ACHIEVEMENT_FIELDS_BY_EVENT = {
     PROGRAM_ENROLLED: ['programId'],
     STARS_SPENT: ['amount', 'itemType'],
     STARS_AWARDED: ['amount', 'reason', 'componentId'],
+    AUDIO_REPLAYED: ['componentId', 'lessonId'],
+    HINT_USED: ['type', 'componentId', 'lessonId', 'hintKind'],
+    POLL_VOTED: ['optionId', 'componentId', 'lessonId'],
 };
 
 const RULE_OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'exists', 'ratioLt'];
@@ -127,6 +133,7 @@ const statsEventBodySchema = z.object({
     programId: z.string().min(1).max(128).optional(),
     componentId: z.string().min(1).max(128).optional(),
     completionTimeMs: z.number().min(0).max(3600000).optional(),
+    extras: z.record(z.union([z.number(), z.string(), z.boolean()])).optional(),
 });
 
 const claimMissionBodySchema = z.object({
@@ -167,6 +174,24 @@ const wordCloudAddBodySchema = z.object({
     word: z.string().min(1).max(40),
 });
 
+const scaleRateBodySchema = z.object({
+    lessonId: z.string().min(1),
+    componentId: z.string().min(1),
+    value: z.number().min(-1000).max(1000),
+});
+
+const storeSkuBodySchema = z.object({
+    sku: z.enum(['live_time', 'live_freeze', 'star_surge', 'second_chance', 'focus_shield', 'streak_freeze']),
+});
+
+const storeResetBodySchema = z.object({
+    lessonId: z.string().min(1).max(128),
+});
+
+const storeQuoteQuerySchema = z.object({
+    lessonId: queryString,
+});
+
 const handleSchema = z.string().min(3).max(24).regex(
     /^[a-z][a-z0-9_]*$/,
     'Use a lowercase handle like maya_codes'
@@ -174,11 +199,27 @@ const handleSchema = z.string().min(3).max(24).regex(
 
 const accentColorSchema = z.enum(['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B']);
 
+const avatarIdSchema = z.enum([
+    'nova', 'pixel', 'comet', 'mango', 'kiwi', 'blaze',
+    'frost', 'luna', 'orbit', 'zest', 'coral', 'mint',
+    'rocket', 'wave', 'spark', 'ember', 'sage', 'sunny',
+    'jazz', 'pebble',
+]);
+
 const updateProfileBodySchema = z.object({
     full_name: z.string().min(2).max(80).optional(),
     handle: handleSchema.optional(),
     isPublicProfile: z.boolean().optional(),
     accentColor: accentColorSchema.optional(),
+    avatarId: avatarIdSchema.optional(),
+});
+
+const completeOnboardingBodySchema = z.object({
+    skipped: z.boolean().optional(),
+    full_name: z.string().min(2).max(80).optional(),
+    handle: handleSchema.optional(),
+    accentColor: accentColorSchema.optional(),
+    avatarId: avatarIdSchema.optional(),
 });
 
 const markNotificationsBodySchema = z.object({
@@ -227,7 +268,7 @@ function validateQuery(schema) {
 const CONTRACT_KEYS = {
     awardStars: ['amount', 'reason', 'componentId'],
     spendStars: ['amount', 'itemType'],
-    statsEvent: ['eventType', 'isFirstAttempt', 'percentage', 'mode', 'type', 'amount', 'lessonId', 'programId', 'componentId', 'completionTimeMs'],
+    statsEvent: ['eventType', 'isFirstAttempt', 'percentage', 'mode', 'type', 'amount', 'lessonId', 'programId', 'componentId', 'completionTimeMs', 'extras'],
     claimMission: ['missionId'],
     interactionGet: ['lessonId', 'userId'],
     interactionSave: ['userId', 'lessonId', 'componentsState', 'lessonState', 'attemptsMap', 'version'],
@@ -254,9 +295,15 @@ module.exports = {
     liveGetQuerySchema,
     pollVoteBodySchema,
     wordCloudAddBodySchema,
+    scaleRateBodySchema,
+    storeSkuBodySchema,
+    storeResetBodySchema,
+    storeQuoteQuerySchema,
     handleSchema,
     accentColorSchema,
+    avatarIdSchema,
     updateProfileBodySchema,
+    completeOnboardingBodySchema,
     markNotificationsBodySchema,
     validateBody,
     validateQuery,

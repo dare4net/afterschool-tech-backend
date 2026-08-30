@@ -22,6 +22,29 @@ async function wordClouds() {
     return (await getLessonsDb()).collection('wordclouds');
 }
 
+async function scales() {
+    return (await getLessonsDb()).collection('scales');
+}
+
+function scaleSnapshot(doc) {
+    const ratings = doc?.ratings && typeof doc.ratings === 'object' ? doc.ratings : {};
+    const values = Object.values(ratings).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+    const buckets = {};
+    let sum = 0;
+    for (const value of values) {
+        const key = String(value);
+        buckets[key] = (buckets[key] || 0) + 1;
+        sum += value;
+    }
+    const total = values.length;
+    return {
+        buckets,
+        total,
+        sum,
+        average: total ? Math.round((sum / total) * 10) / 10 : 0,
+    };
+}
+
 async function getPoll(lessonId, componentId) {
     const doc = await (await polls()).findOne({ lessonId, componentId });
     return {
@@ -72,6 +95,28 @@ async function addWordCloudWord(lessonId, componentId, word) {
     return { counts: denormalizeCounts(doc?.counts || { [key]: 1 }) };
 }
 
+async function getScale(lessonId, componentId) {
+    const doc = await (await scales()).findOne({ lessonId, componentId });
+    return scaleSnapshot(doc);
+}
+
+async function setScaleRating(lessonId, componentId, userId, value) {
+    const safeUser = String(userId || '').replace(/[.$]/g, '').slice(0, 64);
+    const numeric = Number(value);
+    if (!safeUser || !Number.isFinite(numeric)) {
+        return { error: 'Invalid rating', status: 400 };
+    }
+    const result = await (await scales()).findOneAndUpdate(
+        { lessonId, componentId },
+        {
+            $set: { [`ratings.${safeUser}`]: numeric, updatedAt: new Date() },
+            $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true, returnDocument: 'after' }
+    );
+    return scaleSnapshot(result?.value || result);
+}
+
 module.exports = {
     normalizeCloudWord,
     getPoll,
@@ -79,4 +124,7 @@ module.exports = {
     getWordCloud,
     addWordCloudWord,
     denormalizeCounts,
+    getScale,
+    setScaleRating,
+    scaleSnapshot,
 };

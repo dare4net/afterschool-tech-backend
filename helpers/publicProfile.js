@@ -37,6 +37,13 @@ function handleError(handle) {
 
 const ACCENT_COLORS = ['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B'];
 
+const AVATAR_IDS = [
+    'nova', 'pixel', 'comet', 'mango', 'kiwi', 'blaze',
+    'frost', 'luna', 'orbit', 'zest', 'coral', 'mint',
+    'rocket', 'wave', 'spark', 'ember', 'sage', 'sunny',
+    'jazz', 'pebble',
+];
+
 function isAccentColor(value) {
     return ACCENT_COLORS.includes(String(value || '').toUpperCase())
         || ACCENT_COLORS.includes(String(value || ''));
@@ -65,12 +72,41 @@ function resolveAccentColor(userOrHandle, chosen) {
     return defaultAccentColor(handle);
 }
 
+function isAvatarId(value) {
+    return AVATAR_IDS.includes(String(value || ''));
+}
+
+function hashToIndex(seed, length) {
+    const text = String(seed || 'student');
+    let n = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        n = (n + text.charCodeAt(i) * (i + 1)) % length;
+    }
+    return n;
+}
+
+function defaultAvatarId(seed) {
+    return AVATAR_IDS[hashToIndex(seed, AVATAR_IDS.length)];
+}
+
+function resolveAvatarId(userOrHandle, chosen) {
+    const picked = typeof userOrHandle === 'object' && userOrHandle
+        ? userOrHandle.avatarId
+        : chosen;
+    if (isAvatarId(picked)) return picked;
+    const seed = typeof userOrHandle === 'object' && userOrHandle
+        ? (userOrHandle.handle || userOrHandle.user_id)
+        : userOrHandle;
+    return defaultAvatarId(seed);
+}
+
 function publicProfileFields(user) {
     if (!user) return null;
     return {
         handle: user.handle || null,
         displayName: user.full_name || user.name || user.handle || 'Student',
         accentColor: resolveAccentColor(user),
+        avatarId: resolveAvatarId(user),
     };
 }
 
@@ -123,6 +159,10 @@ module.exports = {
     isAccentColor,
     defaultAccentColor,
     resolveAccentColor,
+    AVATAR_IDS,
+    isAvatarId,
+    defaultAvatarId,
+    resolveAvatarId,
     publicProfileFields,
     escapeSearchQuery,
     firstNameSlug,

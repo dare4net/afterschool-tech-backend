@@ -64,8 +64,15 @@ async function touchProgramActivity(userId) {
     }
 }
 
+async function deleteByUserAndLesson(userId, lessonId) {
+    if (!userId || !lessonId) return { deletedCount: 0 };
+    const result = await (await interactions()).deleteMany({ userId, lessonId });
+    return { deletedCount: result.deletedCount || 0 };
+}
+
 module.exports = {
     findByUserAndLesson,
     upsertProgress,
     touchProgramActivity,
+    deleteByUserAndLesson,
 };

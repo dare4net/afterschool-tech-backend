@@ -1,4 +1,5 @@
 const liveAggregatesRepo = require('../repositories/liveAggregatesRepo');
+const { getAuthenticatedUserId } = require('../helpers/actorUser');
 
 function snapshot(res, payload) {
     return res.json({ success: true, ...payload });
@@ -48,5 +49,31 @@ exports.addWordCloudWord = async (req, res) => {
     } catch (err) {
         console.error('[WORDCLOUD] POST error:', err);
         res.status(500).json({ error: 'Failed to add word' });
+    }
+};
+
+exports.getScale = async (req, res) => {
+    try {
+        const { lessonId, componentId } = req.validatedQuery;
+        const data = await liveAggregatesRepo.getScale(lessonId, componentId);
+        return snapshot(res, data);
+    } catch (err) {
+        console.error('[SCALE] GET error:', err);
+        res.status(500).json({ error: 'Failed to load scale' });
+    }
+};
+
+exports.rateScale = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        const { lessonId, componentId, value } = req.validatedBody;
+        const data = await liveAggregatesRepo.setScaleRating(lessonId, componentId, userId, value);
+        if (data.error) {
+            return res.status(data.status || 400).json({ error: data.error });
+        }
+        return snapshot(res, data);
+    } catch (err) {
+        console.error('[SCALE] POST error:', err);
+        res.status(500).json({ error: 'Failed to submit rating' });
     }
 };

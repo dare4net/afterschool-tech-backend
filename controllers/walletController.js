@@ -2,6 +2,7 @@ const { getAuthenticatedUserId } = require('../helpers/actorUser');
 const walletRepo = require('../repositories/walletRepo');
 const { recordProgressEvent } = require('../helpers/studentProgress');
 const prideStats = require('../helpers/prideStats');
+const starStore = require('../helpers/starStore');
 
 /**
  * Get current star wallet balance and transaction history for a user
@@ -38,14 +39,23 @@ exports.awardStars = async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const transaction = walletRepo.earnTransaction(amount, reason, componentId);
+        let awarded = amount;
+        const reasonText = String(reason || '');
+        if (/timeout/i.test(reasonText)) {
+            const shield = await starStore.consumeBuff(userId, 'focus_shield');
+            if (shield.consumed) awarded += 1;
+        }
+        const surge = await starStore.consumeBuff(userId, 'star_surge');
+        if (surge.consumed) awarded += Number(surge.effect) || 0;
+
+        const transaction = walletRepo.earnTransaction(awarded, reason, componentId);
         const updatedWallet = await walletRepo.applyBalanceChange(userId, {
-            inc: amount,
+            inc: awarded,
             transaction,
             upsert: true,
         });
-        const progressAfter = await recordProgressEvent(userId, 'STARS_AWARDED', { amount });
-        await prideStats.syncFromProgressEvent(userId, 'STARS_AWARDED', { amount }, progressAfter);
+        const progressAfter = await recordProgressEvent(userId, 'STARS_AWARDED', { amount: awarded });
+        await prideStats.syncFromProgressEvent(userId, 'STARS_AWARDED', { amount: awarded }, progressAfter);
 
         res.json({
             success: true,

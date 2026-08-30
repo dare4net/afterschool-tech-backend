@@ -34,6 +34,7 @@ function reconstructPrideCounts({
         lessonsCompleted: Math.max(Number(progress.lessonsCompleted) || 0, Number(lessonsCompleted) || 0),
         programsEnrolled: Number(programsEnrolled) || 0,
         currentStreak: Number(progress.consecutiveCorrect) || 0,
+        loginStreak: Number(progress.loginStreak) || 0,
         missionsClaimed: Array.isArray(progress.completedMissions) ? progress.completedMissions.length : 0,
         lifetimeStars: Number(progress.lifetimeStarsEarned) || 0,
         achievementsEarned: Number(achievementsEarned) || 0,
@@ -56,6 +57,7 @@ function countOpsFrom(counts) {
     ops.push({ key: 'lifetimeStars', value: Number(counts.lifetimeStars) || 0 });
     ops.push({ key: 'achievementsEarned', value: Number(counts.achievementsEarned) || 0 });
     ops.push({ key: 'followers', value: Number(counts.followers) || 0 });
+    ops.push({ key: 'loginStreak', value: Number(counts.loginStreak) || 0 });
     return ops.filter((item) => {
         const spec = getPrideStat(item.key);
         return spec && spec.sort !== 'asc';

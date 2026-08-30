@@ -25,6 +25,15 @@ async function countProgramRegistrations(userId) {
     return (await main()).collection('program_registrations').countDocuments({ user_id: userId });
 }
 
+async function deleteCompletion(userId, lessonId) {
+    if (!userId || !lessonId) return { deletedCount: 0 };
+    const result = await (await main()).collection('lesson_completions').deleteMany({
+        user_id: userId,
+        $or: [{ lesson_id: lessonId }, { lessonId }],
+    });
+    return { deletedCount: result.deletedCount || 0 };
+}
+
 async function countUserPrograms(userId) {
     const userDoc = await (await main()).collection('users').findOne(
         { user_id: userId },
@@ -39,4 +48,5 @@ module.exports = {
     countHigherScorers,
     countProgramRegistrations,
     countUserPrograms,
+    deleteCompletion,
 };

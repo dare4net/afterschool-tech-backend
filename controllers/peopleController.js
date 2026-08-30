@@ -35,6 +35,7 @@ function publicWallItem(item) {
                 displayName: item.gold.displayName,
                 value: item.gold.value,
                 accentColor: item.gold.accentColor,
+                avatarId: item.gold.avatarId || null,
                 bestCrown: item.gold.bestCrown,
                 following: item.gold.following === true,
             }
@@ -116,6 +117,7 @@ function publicPerson(row) {
         handle: row.handle,
         displayName: row.displayName || row.handle,
         accentColor: row.accentColor || null,
+        avatarId: row.avatarId || null,
         bestCrown: row.bestCrown || row.best_crown || row.crown || null,
         following: row.following === true,
     };
@@ -133,6 +135,7 @@ function publicBoard(row) {
                 displayName: row.gold.displayName,
                 value: row.gold.value,
                 accentColor: row.gold.accentColor,
+                avatarId: row.gold.avatarId || null,
                 bestCrown: row.gold.bestCrown,
                 following: row.gold.following === true,
             }

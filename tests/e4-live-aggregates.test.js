@@ -17,6 +17,7 @@ describe('E4 live aggregates', () => {
         const server = readFileSync(join(__dirname, '../server.js'), 'utf8');
         assert.match(server, /app\.use\('\/api\/polls',\s*pollRoutes\)/);
         assert.match(server, /app\.use\('\/api\/wordclouds',\s*wordCloudRoutes\)/);
+        assert.match(server, /app\.use\('\/api\/scales',\s*scaleRoutes\)/);
         const polls = readFileSync(join(__dirname, '../routes/pollRoutes.js'), 'utf8');
         const clouds = readFileSync(join(__dirname, '../routes/wordCloudRoutes.js'), 'utf8');
         assert.match(polls, /router\.use\(authorize\)/);

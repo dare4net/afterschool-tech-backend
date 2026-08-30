@@ -1,6 +1,6 @@
 const { getMainDb } = require('../config/database');
 const usersRepo = require('../repositories/usersRepo');
-const { sanitizeHandle, handleError, isAccentColor } = require('../helpers/publicProfile');
+const { sanitizeHandle, handleError, isAccentColor, isAvatarId } = require('../helpers/publicProfile');
 const prideStats = require('../helpers/prideStats');
 
 // Helper: get collection name by role (previously table)
@@ -45,6 +45,9 @@ exports.getProfile = async (req, res) => {
     profile.handle = user.handle || null;
     profile.isPublicProfile = user.isPublicProfile === true;
     profile.accentColor = user.accentColor || null;
+    profile.avatarId = user.avatarId || null;
+    profile.onboardingCompletedAt = user.onboardingCompletedAt || null;
+    profile.onboardingSkippedAt = user.onboardingSkippedAt || null;
     res.json(profile);
   } catch (err) {
     console.error('MongoDB Error:', err);
@@ -91,7 +94,7 @@ exports.updateProfile = async (req, res) => {
   const userId = req.user.user_id;
   const role = req.user.role;
   const body = req.validatedBody || req.body || {};
-  const { full_name, handle, isPublicProfile, accentColor, ...rest } = body;
+  const { full_name, handle, isPublicProfile, accentColor, avatarId, ...rest } = body;
 
   try {
     const current = await usersRepo.findByUserId(userId);
@@ -127,6 +130,13 @@ exports.updateProfile = async (req, res) => {
       identityPatch.accentColor = accentColor;
     }
 
+    if (avatarId !== undefined) {
+      if (!isAvatarId(avatarId)) {
+        return res.status(400).json({ error: 'Pick an avatar' });
+      }
+      identityPatch.avatarId = avatarId;
+    }
+
     if (Object.keys(identityPatch).length > 0) {
       await usersRepo.ensureIndexes();
       await usersRepo.updateIdentity(userId, identityPatch);
@@ -137,7 +147,7 @@ exports.updateProfile = async (req, res) => {
     if (collection && Object.keys(rest).length > 0) {
       const updateData = {};
       for (const [key, value] of Object.entries(rest)) {
-        if (value !== undefined && !['_id', 'user_id', 'password_hash', 'email', 'handle', 'isPublicProfile', 'accentColor'].includes(key)) {
+        if (value !== undefined && !['_id', 'user_id', 'password_hash', 'email', 'handle', 'isPublicProfile', 'accentColor', 'avatarId'].includes(key)) {
           updateData[key] = value;
         }
       }
@@ -164,6 +174,7 @@ exports.updateProfile = async (req, res) => {
       handle: updated?.handle || null,
       isPublicProfile: updated?.isPublicProfile === true,
       accentColor: updated?.accentColor || null,
+      avatarId: updated?.avatarId || null,
     });
   } catch (err) {
     if (err && err.code === 11000) {

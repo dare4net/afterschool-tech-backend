@@ -47,7 +47,21 @@ exports.signup = async (req, res) => {
 
     const token = issueAuthToken({ user_id, account_type: role });
 
-    res.status(201).json({ message: 'User registered', token });
+    res.status(201).json({
+      message: 'User registered',
+      token,
+      user: {
+        user_id,
+        email,
+        full_name: full_name || null,
+        handle: null,
+        isPublicProfile: false,
+        accentColor: null,
+        avatarId: null,
+        onboardingCompletedAt: null,
+        onboardingSkippedAt: null,
+      },
+    });
   } catch (err) {
     console.error('SQL Error:', err); // Log SQL errors
     res.status(500).json({ error: err.message });
@@ -69,7 +83,20 @@ exports.login = async (req, res) => {
     if (!match) return res.status(401).json({ message: 'Invalid credentials' });
 
     const token = issueAuthToken(user);
-    res.json({ token });
+    res.json({
+      token,
+      user: {
+        user_id: user.user_id,
+        email: user.email,
+        full_name: user.full_name || null,
+        handle: user.handle || null,
+        isPublicProfile: user.isPublicProfile === true,
+        accentColor: user.accentColor || null,
+        avatarId: user.avatarId || null,
+        onboardingCompletedAt: user.onboardingCompletedAt || null,
+        onboardingSkippedAt: user.onboardingSkippedAt || null,
+      },
+    });
   } catch (err) {
     console.error('MongoDB Error:', err);
     res.status(500).json({ error: err.message });

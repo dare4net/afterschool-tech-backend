@@ -3,6 +3,7 @@ const { getOrCreateProgress, gatherMissionStats, recordProgressEvent } = require
 const walletRepo = require('../repositories/walletRepo');
 const statsRepo = require('../repositories/statsRepo');
 const prideStats = require('../helpers/prideStats');
+const { applyLoginStreak } = require('../helpers/applyLoginStreak');
 
 /**
  * Get unified stats summary for a student's dashboard
@@ -16,6 +17,7 @@ exports.getStudentStats = async (req, res) => {
 
         const wallet = await walletRepo.findByUserId(userId);
         const starBalance = wallet ? (wallet.starBalance || 0) : 0;
+        const streak = await applyLoginStreak(userId);
         const progress = await getOrCreateProgress(userId);
         const missionStats = await gatherMissionStats(userId, progress, starBalance);
 
@@ -56,6 +58,13 @@ exports.getStudentStats = async (req, res) => {
                 submitsByType: missionStats.submitsByType,
                 submitsByLesson: missionStats.submitsByLesson,
                 submitsByComponent: missionStats.submitsByComponent,
+                loginStreak: streak.loginStreak,
+                longestLoginStreak: streak.longestLoginStreak,
+                lastLoginDate: streak.lastLoginDate,
+                streakContinued: streak.continued,
+                streakBroken: streak.broken,
+                streakAlreadyCounted: streak.alreadyCounted,
+                streakUsedFreeze: streak.usedFreeze,
             }
         });
     } catch (err) {

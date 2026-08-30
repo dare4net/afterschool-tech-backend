@@ -74,6 +74,10 @@ async function updateIdentity(userId, patch) {
     if (patch.handle !== undefined) $set.handle = patch.handle;
     if (patch.isPublicProfile !== undefined) $set.isPublicProfile = patch.isPublicProfile;
     if (patch.accentColor !== undefined) $set.accentColor = patch.accentColor;
+    if (patch.avatarId !== undefined) $set.avatarId = patch.avatarId;
+    if (patch.onboardingCompletedAt !== undefined) $set.onboardingCompletedAt = patch.onboardingCompletedAt;
+    if (patch.onboardingSkippedAt !== undefined) $set.onboardingSkippedAt = patch.onboardingSkippedAt;
+    if (patch.onboardingBonusAwarded !== undefined) $set.onboardingBonusAwarded = patch.onboardingBonusAwarded;
     const result = await (await col()).findOneAndUpdate(
         { user_id: userId },
         { $set },

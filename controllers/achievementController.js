@@ -52,7 +52,9 @@ exports.evaluateEvent = async (req, res) => {
         let progressAfter = {};
 
         for (const ach of matching) {
-            if (!achievementMatches(ach, eventType, payload)) continue;
+            const extras = payload.extras && typeof payload.extras === 'object' ? payload.extras : {};
+            const flat = { ...payload, ...extras };
+            if (!achievementMatches(ach, eventType, flat)) continue;
 
             const existing = await achievementRepo.findEarned(userId, ach.id);
             if (existing) continue;

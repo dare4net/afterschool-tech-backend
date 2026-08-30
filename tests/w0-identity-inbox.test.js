@@ -58,6 +58,7 @@ describe('W0 handle identity', () => {
         assert.equal(fields.handle, 'maya_codes');
         assert.equal(fields.displayName, 'Maya');
         assert.equal(fields.accentColor, require('../helpers/publicProfile').defaultAccentColor('maya_codes'));
+        assert.equal(fields.avatarId, require('../helpers/publicProfile').defaultAvatarId('maya_codes'));
         assert.equal(Object.prototype.hasOwnProperty.call(fields, 'email'), false);
         assert.equal(json.includes('email'), false);
         assert.equal(json.includes('maya@school.edu'), false);
@@ -72,6 +73,27 @@ describe('W0 handle identity', () => {
         assert.match(profile, /That handle is taken/);
         assert.match(profile, /usersRepo\.handleTakenByOther/);
         assert.match(profile, /isPublicProfile === true && !nextHandle/);
+        assert.match(profile, /avatarId/);
+        assert.match(profile, /Pick an avatar/);
+    });
+
+    it('lets students pick a catalog avatar that is safe on public JSON', () => {
+        const { resolveAvatarId, isAvatarId, AVATAR_IDS } = require('../helpers/publicProfile');
+        assert.equal(isAvatarId('nova'), true);
+        assert.equal(isAvatarId('not-a-face'), false);
+        assert.equal(resolveAvatarId({ handle: 'maya_codes', avatarId: 'kiwi' }), 'kiwi');
+        assert.equal(resolveAvatarId({ handle: 'maya_codes' }), require('../helpers/publicProfile').defaultAvatarId('maya_codes'));
+        assert.ok(AVATAR_IDS.length >= 12);
+        const fields = publicProfileFields({
+            handle: 'maya_codes',
+            full_name: 'Maya',
+            email: 'maya@school.edu',
+            avatarId: 'rocket',
+        });
+        assert.equal(fields.avatarId, 'rocket');
+        assert.equal(JSON.stringify(fields).includes('maya@school.edu'), false);
+        assert.equal(updateProfileBodySchema.parse({ avatarId: 'spark' }).avatarId, 'spark');
+        assert.equal(updateProfileBodySchema.safeParse({ avatarId: 'evil' }).success, false);
     });
 });
 

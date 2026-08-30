@@ -11,6 +11,7 @@ function publicRow(row) {
         value: row.value,
         crown: row.crown || null,
         accentColor: row.accentColor || null,
+        avatarId: row.avatarId || null,
         bestCrown: row.bestCrown || row.crown || null,
         following: row.following === true,
     };

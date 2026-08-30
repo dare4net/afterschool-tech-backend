@@ -20,6 +20,9 @@ const EMPTY_PROGRESS = {
     submitsByType: {},
     submitsByLesson: {},
     submitsByComponent: {},
+    loginStreak: 0,
+    longestLoginStreak: 0,
+    lastLoginDate: null,
 };
 
 async function col() {

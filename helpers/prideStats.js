@@ -4,7 +4,7 @@ const { notify: defaultNotify } = require('./notify');
 const { log } = require('./logger');
 const { sanitizeTypeKey } = require('./platformMissions');
 const { reconstructPrideCounts, countOpsFrom } = require('./prideBackfill');
-const { resolveAccentColor } = require('./publicProfile');
+const { resolveAccentColor, resolveAvatarId } = require('./publicProfile');
 const {
     PRIDE_CATALOG,
     getPrideStat,
@@ -112,6 +112,8 @@ function createPrideStats({
                 }
             } else if (eventType === 'FOLLOWERS_CHANGED') {
                 ops.push({ key: 'followers', op: { set: Number(payload.count) || 0 } });
+            } else if (eventType === 'LOGIN_STREAK') {
+                ops.push({ key: 'loginStreak', op: { set: Number(payload.count ?? progressAfter.loginStreak) || 0 } });
             } else {
                 return { golds: [] };
             }
@@ -248,6 +250,7 @@ function createPrideStats({
                 value: row.value,
                 crown,
                 accentColor: resolveAccentColor(user),
+                avatarId: resolveAvatarId(user),
                 bestCrown: betterCrown(stats.best_crown, crown),
                 following: following.has(row.user_id),
                 updatedAt: row.updated_at,
@@ -278,6 +281,7 @@ function createPrideStats({
                             displayName: above.displayName,
                             amount,
                             accentColor: above.accentColor,
+                            avatarId: above.avatarId,
                             bestCrown: above.bestCrown,
                             crown: above.crown,
                             following: above.following,
@@ -393,6 +397,7 @@ function createPrideStats({
             handle,
             displayName: userOrRow.displayName || userOrRow.full_name || userOrRow.name || handle,
             accentColor: resolveAccentColor(userOrRow),
+            avatarId: resolveAvatarId(userOrRow),
             bestCrown: betterCrown(userOrRow.bestCrown || userOrRow.best_crown, userOrRow.crown),
             following: userOrRow.following === true,
         };
@@ -406,6 +411,7 @@ function createPrideStats({
             displayName: gold.displayName,
             value: gold.value,
             accentColor: gold.accentColor,
+            avatarId: gold.avatarId,
             bestCrown: betterCrown(gold.bestCrown, gold.crown),
             following: gold.following === true,
         };
@@ -422,6 +428,7 @@ function createPrideStats({
             value: gold.value,
             userId: gold.userId,
             accentColor: gold.accentColor,
+            avatarId: gold.avatarId,
             bestCrown: betterCrown(gold.bestCrown, gold.crown),
             following: gold.following === true,
         };
@@ -435,6 +442,7 @@ function createPrideStats({
             displayName: row.displayName,
             value: row.value,
             accentColor: row.accentColor,
+            avatarId: row.avatarId,
             bestCrown: betterCrown(row.bestCrown, row.crown),
             following: row.following === true,
         };
@@ -488,6 +496,7 @@ function createPrideStats({
                     handle: gold.handle,
                     displayName: gold.displayName,
                     accentColor: gold.accentColor,
+                    avatarId: gold.avatarId,
                     bestCrown: gold.bestCrown,
                     following: gold.following,
                 }));

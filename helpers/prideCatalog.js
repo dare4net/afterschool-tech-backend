@@ -30,6 +30,7 @@ function featuredStats() {
         { key: 'programsEnrolled', label: 'Programs joined', sort: 'desc', unit: 'count', group: 'featured' },
         { key: 'fastestLiveMs', label: 'Fastest live finish', sort: 'asc', unit: 'ms', group: 'featured' },
         { key: 'currentStreak', label: 'Perfect streak', sort: 'desc', unit: 'count', group: 'featured' },
+        { key: 'loginStreak', label: 'Login streak', sort: 'desc', unit: 'count', group: 'featured' },
     ];
 }
 
