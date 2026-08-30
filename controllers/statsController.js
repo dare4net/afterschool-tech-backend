@@ -15,9 +15,9 @@ exports.getStudentStats = async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
+        const streak = await applyLoginStreak(userId);
         const wallet = await walletRepo.findByUserId(userId);
         const starBalance = wallet ? (wallet.starBalance || 0) : 0;
-        const streak = await applyLoginStreak(userId);
         const progress = await getOrCreateProgress(userId);
         const missionStats = await gatherMissionStats(userId, progress, starBalance);
 
@@ -65,6 +65,10 @@ exports.getStudentStats = async (req, res) => {
                 streakBroken: streak.broken,
                 streakAlreadyCounted: streak.alreadyCounted,
                 streakUsedFreeze: streak.usedFreeze,
+                streakBonusStars: streak.streakBonusStars || 0,
+                streakFreezeRemaining: streak.freezeRemaining || 0,
+                nextStreakMilestone: streak.nextMilestone || null,
+                nextStreakMilestoneReward: streak.nextMilestoneReward || 0,
             }
         });
     } catch (err) {

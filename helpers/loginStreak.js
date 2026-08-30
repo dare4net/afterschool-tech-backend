@@ -1,3 +1,16 @@
+const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100];
+
+function streakMilestoneReward(days) {
+    const index = STREAK_MILESTONES.indexOf(Number(days));
+    if (index < 0) return 0;
+    return 5 * (2 ** index);
+}
+
+function nextStreakMilestone(days) {
+    const current = Number(days) || 0;
+    return STREAK_MILESTONES.find((mark) => mark > current) || null;
+}
+
 function utcDay(date = new Date()) {
     return date.toISOString().slice(0, 10);
 }
@@ -64,6 +77,9 @@ function nextStreakState(progress = {}, today = utcDay(), freezeRemaining = 0) {
 }
 
 module.exports = {
+    STREAK_MILESTONES,
+    streakMilestoneReward,
+    nextStreakMilestone,
     utcDay,
     daysBetween,
     nextStreakState,

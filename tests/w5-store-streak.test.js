@@ -2,7 +2,8 @@ const { describe, it } = require('node:test');
 const assert = require('assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { nextStreakState } = require('../helpers/loginStreak');
+const { nextStreakState, streakMilestoneReward } = require('../helpers/loginStreak');
+const { applyLoginStreak } = require('../helpers/applyLoginStreak');
 const { createStarStore } = require('../helpers/starStore');
 const { lessonResetCost, upgradeCost, getItem, maxStarsForLesson } = require('../helpers/starMarket');
 
@@ -91,6 +92,46 @@ describe('W5 store and login streak', () => {
         assert.equal(bought.error, undefined);
         assert.equal(bought.starBalance, 20);
         assert.equal(bought.inventory.items.live_time.charges, 1);
+    });
+
+    it('pays exponential stars on streak milestones', async () => {
+        assert.equal(streakMilestoneReward(1), 0);
+        assert.equal(streakMilestoneReward(3), 5);
+        assert.equal(streakMilestoneReward(7), 10);
+        assert.equal(streakMilestoneReward(14), 20);
+        assert.equal(streakMilestoneReward(30), 40);
+        assert.equal(streakMilestoneReward(60), 80);
+        assert.equal(streakMilestoneReward(100), 160);
+
+        const progress = { loginStreak: 6, longestLoginStreak: 6, lastLoginDate: '2026-08-29' };
+        const wallets = new Map();
+        const result = await applyLoginStreak('u1', {
+            now: new Date('2026-08-30T12:00:00Z'),
+            progressRepo: {
+                getOrCreate: async () => progress,
+                update: async (_id, update) => Object.assign(progress, update.$set),
+            },
+            inventoryRepo: {
+                getOrCreate: async () => ({ buffs: {} }),
+                update: async () => ({}),
+            },
+            walletRepo: {
+                earnTransaction: (amount, reason) => ({ amount, reason }),
+                applyBalanceChange: async (userId, { inc, transaction }) => {
+                    const wallet = wallets.get(userId) || { starBalance: 0, transactions: [] };
+                    wallet.starBalance += inc;
+                    wallet.transactions.push(transaction);
+                    wallets.set(userId, wallet);
+                    return wallet;
+                },
+            },
+            prideStats: { syncFromProgressEvent: async () => ({}) },
+            recordProgressEvent: async () => ({ lifetimeStarsEarned: 10 }),
+        });
+        assert.equal(result.loginStreak, 7);
+        assert.equal(result.streakBonusStars, 10);
+        assert.equal(wallets.get('u1').starBalance, 10);
+        assert.equal(progress.lastStreakBonusStars, 10);
     });
 
     it('lists login streak on the pride catalog and mounts the store', () => {
