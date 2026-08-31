@@ -1,9 +1,16 @@
 const { SCORED_COMPONENT_TYPES } = require('../contracts/platform');
+const { summarizeLessonHunt } = require('./lessonHunt');
 
 const MAX_STARS_PER_LIVE_BLOCK = 5;
 const CERTIFICATE_PRINT_COST = 5;
-const BLOCK_RESET_COST = 10;
-const REFERENCE_LIVE_COST = 3;
+const BLOCK_RESET_STORE_COST = 10;
+const BLOCK_RESET_ON_DEMAND_COST = 15;
+const BLOCK_RESET_COST = BLOCK_RESET_ON_DEMAND_COST;
+const REFERENCE_STORE_COST = 10;
+const REFERENCE_ON_DEMAND_COST = 15;
+const REFERENCE_LIVE_COST = REFERENCE_ON_DEMAND_COST;
+const LESSON_UNLOCK_PROGRESS = 50;
+const LESSON_EARLY_UNLOCK_COST = 20;
 
 const PREMIUM_ACCENT_COLORS = ['#14B8A6', '#F472B6', '#0EA5E9'];
 
@@ -89,9 +96,9 @@ const STORE_ITEMS = {
         sku: 'live_block_reset',
         name: 'Block Reset',
         kind: 'consumable',
-        description: 'Wipe one live block so you can try it again.',
+        description: 'Wipe one live block so you can try it again. 10★ in the store, 15★ if you buy it in the moment.',
         maxLevel: 1,
-        chargeCost: 10,
+        chargeCost: BLOCK_RESET_STORE_COST,
         upgradeBase: 0,
         effectLabel: 'block resets',
         effectAt: () => 1,
@@ -100,9 +107,9 @@ const STORE_ITEMS = {
         sku: 'reference_credit',
         name: 'Reference Credit',
         kind: 'consumable',
-        description: 'Open a tutor reference during a live block.',
+        description: 'Open a tutor reference during a live block. 10★ in the store, 15★ if you open one with no credit left.',
         maxLevel: 1,
-        chargeCost: 6,
+        chargeCost: REFERENCE_STORE_COST,
         upgradeBase: 0,
         effectLabel: 'live opens',
         effectAt: () => 1,
@@ -185,7 +192,7 @@ function countLiveScoredBlocks(content) {
 }
 
 function maxStarsForLesson(content) {
-    return countLiveScoredBlocks(content) * MAX_STARS_PER_LIVE_BLOCK;
+    return summarizeLessonHunt(content?.slides).maxStars;
 }
 
 function lessonResetCost(content) {
@@ -217,7 +224,13 @@ module.exports = {
     MAX_STARS_PER_LIVE_BLOCK,
     CERTIFICATE_PRINT_COST,
     BLOCK_RESET_COST,
+    BLOCK_RESET_STORE_COST,
+    BLOCK_RESET_ON_DEMAND_COST,
     REFERENCE_LIVE_COST,
+    REFERENCE_STORE_COST,
+    REFERENCE_ON_DEMAND_COST,
+    LESSON_UNLOCK_PROGRESS,
+    LESSON_EARLY_UNLOCK_COST,
     PREMIUM_ACCENT_COLORS,
     getItem,
     upgradeCost,

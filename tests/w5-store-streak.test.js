@@ -35,7 +35,10 @@ describe('W5 store and login streak', () => {
     it('prices lesson reset at 150% of max live stars', () => {
         const content = {
             slides: [
-                { components: [{ type: 'quiz', mode: 'live' }, { type: 'hangman', props: { timeLimit: 20 } }] },
+                { components: [
+                    { type: 'quiz', mode: 'live', props: { points: 5, mode: 'live', questions: [{}] } },
+                    { type: 'hangman', props: { points: 10, timeLimit: 20, mode: 'live' } },
+                ] },
                 { components: [{ type: 'paragraph' }] },
             ],
         };
@@ -245,6 +248,11 @@ describe('W5 store and login streak', () => {
         assert.equal(live.usedCredit, true);
         const livePaid = await api.openReference('u1', 'live');
         assert.equal(livePaid.usedCredit, false);
-        assert.equal(livePaid.cost, 3);
+        assert.equal(livePaid.cost, 15);
+        assert.equal(getItem('reference_credit').chargeCost, 10);
+        assert.equal(getItem('live_block_reset').chargeCost, 10);
+        assert.match(read('helpers/starMarket.js'), /BLOCK_RESET_ON_DEMAND_COST = 15/);
+        assert.match(read('helpers/starMarket.js'), /REFERENCE_ON_DEMAND_COST = 15/);
+        assert.match(read('routes/storeRoutes.js'), /unlock-lesson/);
     });
 });

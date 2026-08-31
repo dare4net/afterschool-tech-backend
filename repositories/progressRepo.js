@@ -23,6 +23,7 @@ const EMPTY_PROGRESS = {
     loginStreak: 0,
     longestLoginStreak: 0,
     lastLoginDate: null,
+    earlyUnlockLessonIds: [],
 };
 
 async function col() {

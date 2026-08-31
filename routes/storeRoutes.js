@@ -21,6 +21,7 @@ router.post('/buy', validateBody(storeSkuBodySchema), storeController.buy);
 router.post('/upgrade', validateBody(storeSkuBodySchema), storeController.upgrade);
 router.post('/activate', validateBody(storeSkuBodySchema), storeController.activate);
 router.post('/reset-lesson', validateBody(storeResetBodySchema), storeController.resetLesson);
+router.post('/unlock-lesson', validateBody(storeResetBodySchema), storeController.unlockLesson);
 router.post('/print-certificate', validateBody(printCertificateBodySchema), storeController.printCertificate);
 router.post('/consume', validateBody(storeConsumeBodySchema), storeController.consume);
 router.post('/reset-block', validateBody(storeResetBlockBodySchema), storeController.resetBlock);

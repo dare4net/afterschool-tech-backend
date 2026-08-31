@@ -126,6 +126,19 @@ exports.openReference = async (req, res) => {
     }
 };
 
+exports.unlockLesson = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const result = await starStore.unlockLesson(userId, req.validatedBody.lessonId);
+        if (result.error) return res.status(result.status || 400).json(result);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[STORE] UNLOCK LESSON error:', err);
+        res.status(500).json({ error: 'Failed to unlock lesson' });
+    }
+};
+
 exports.printCertificate = async (req, res) => {
     try {
         const userId = getAuthenticatedUserId(req);

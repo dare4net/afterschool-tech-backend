@@ -250,4 +250,13 @@ describe('G1 expandable progress facts', () => {
         assert.equal(stats.lifetimeStarsEarned, 7);
         assert.equal(stats.lessonsCompleted, 1);
     });
+
+    it('lifts lifetime stars when the wallet is already ahead', async () => {
+        const { api, progress } = progressService();
+        await progress.update('user-1', { $set: { lifetimeStarsEarned: 24, starsSpent: 0 } });
+        const stats = await api.gatherMissionStats('user-1', await progress.getOrCreate('user-1'), 29);
+        assert.equal(stats.lifetimeStarsEarned, 29);
+        const stored = await progress.getOrCreate('user-1');
+        assert.equal(stored.lifetimeStarsEarned, 29);
+    });
 });

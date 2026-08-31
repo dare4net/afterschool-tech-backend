@@ -20,6 +20,7 @@ describe('W6 onboarding', () => {
         const users = new Map();
         users.set('maya', { user_id: 'maya', account_type: 'student', full_name: 'Maya' });
         let awarded = 0;
+        const progressEvents = [];
         const api = createOnboarding({
             usersRepo: {
                 findByUserId: async (id) => users.get(id) || null,
@@ -36,11 +37,18 @@ describe('W6 onboarding', () => {
                     return { starBalance: awarded };
                 },
             },
+            recordProgressEvent: async (userId, eventType, payload) => {
+                progressEvents.push({ userId, eventType, payload });
+                return { lifetimeStarsEarned: payload.amount };
+            },
         });
 
         const first = await api.complete('maya', { full_name: 'Maya Codes', avatarId: 'rocket', handle: 'maya_codes' });
         assert.equal(first.status, 200);
         assert.equal(first.bonusAwarded, ONBOARDING_BONUS);
+        assert.equal(progressEvents.length, 1);
+        assert.equal(progressEvents[0].eventType, 'STARS_AWARDED');
+        assert.equal(progressEvents[0].payload.amount, ONBOARDING_BONUS);
         assert.equal(first.handle, 'maya_codes');
         assert.ok(first.onboardingCompletedAt);
 

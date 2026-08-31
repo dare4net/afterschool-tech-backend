@@ -14,9 +14,11 @@ const {
     lessonResetCost,
     maxStarsForLesson,
     CERTIFICATE_PRINT_COST,
-    BLOCK_RESET_COST,
-    REFERENCE_LIVE_COST,
+    BLOCK_RESET_ON_DEMAND_COST,
+    REFERENCE_ON_DEMAND_COST,
+    LESSON_EARLY_UNLOCK_COST,
 } = require('./starMarket');
+const { fetchLessonLock } = require('./lessonUnlock');
 
 function createStarStore({
     walletRepo = defaultWalletRepo,
@@ -212,7 +214,7 @@ function createStarStore({
             paid = await consumeCharge(userId, 'live_block_reset');
             if (paid.error) return paid;
         } else {
-            paid = await spend(userId, BLOCK_RESET_COST, `block_reset:${publicId}:${componentId}`);
+            paid = await spend(userId, BLOCK_RESET_ON_DEMAND_COST, `block_reset:${publicId}:${componentId}`);
             if (paid.error) return paid;
         }
         const cleared = await interactionsRepo.clearComponent(userId, publicId, componentId);
@@ -220,7 +222,7 @@ function createStarStore({
             ...paid,
             lessonId: publicId,
             componentId,
-            cost: charges > 0 ? 0 : BLOCK_RESET_COST,
+            cost: charges > 0 ? 0 : BLOCK_RESET_ON_DEMAND_COST,
             usedCharge: charges > 0,
             version: cleared.version,
             wiped: true,
@@ -238,9 +240,36 @@ function createStarStore({
             if (used.error) return used;
             return { ...used, spent: true, cost: 0, usedCredit: true };
         }
-        const paid = await spend(userId, REFERENCE_LIVE_COST, 'reference:live');
+        const paid = await spend(userId, REFERENCE_ON_DEMAND_COST, 'reference:live');
         if (paid.error) return paid;
-        return { ...paid, spent: true, cost: REFERENCE_LIVE_COST, usedCredit: false };
+        return { ...paid, spent: true, cost: REFERENCE_ON_DEMAND_COST, usedCredit: false };
+    }
+
+    async function unlockLesson(userId, lessonId) {
+        const lock = await fetchLessonLock(userId, lessonId);
+        const publicId = lock.lessonId || lessonId;
+        if (!lock.locked) {
+            const wallet = await walletRepo.getOrCreate(userId);
+            return {
+                alreadyUnlocked: true,
+                unlocked: true,
+                cost: 0,
+                lessonId: publicId,
+                starBalance: wallet.starBalance || 0,
+            };
+        }
+        const paid = await spend(userId, LESSON_EARLY_UNLOCK_COST, `lesson_unlock:${publicId}`);
+        if (paid.error) return paid;
+        await progressRepo.update(userId, {
+            $addToSet: { earlyUnlockLessonIds: publicId },
+            $set: { updated_at: new Date() },
+        });
+        return {
+            ...paid,
+            lessonId: publicId,
+            cost: LESSON_EARLY_UNLOCK_COST,
+            unlocked: true,
+        };
     }
 
     async function printCertificate(userId, kind, ref) {
@@ -271,6 +300,7 @@ function createStarStore({
         resetBlock,
         openReference,
         printCertificate,
+        unlockLesson,
         inventoryView,
     };
 }
@@ -289,4 +319,5 @@ module.exports = {
     resetBlock: defaults.resetBlock,
     openReference: defaults.openReference,
     printCertificate: defaults.printCertificate,
+    unlockLesson: defaults.unlockLesson,
 };

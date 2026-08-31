@@ -19,6 +19,16 @@ function createStudentProgress({
     }
 
     async function gatherMissionStats(userId, progress, starBalance) {
+        const recordedLifetime = Number(progress.lifetimeStarsEarned) || 0;
+        const lifetimeFloor = Math.max(
+            recordedLifetime,
+            (Number(starBalance) || 0) + (Number(progress.starsSpent) || 0),
+        );
+        if (lifetimeFloor > recordedLifetime) {
+            progress = await progressRepo.update(userId, {
+                $set: { lifetimeStarsEarned: lifetimeFloor, updated_at: new Date() },
+            }) || { ...progress, lifetimeStarsEarned: lifetimeFloor };
+        }
         const regCount = await statsRepo.countProgramRegistrations(userId);
         const userProgramsCount = await statsRepo.countUserPrograms(userId);
         const completions = typeof statsRepo.listCompletions === 'function'
@@ -27,7 +37,7 @@ function createStudentProgress({
         return {
             programsEnrolled: Math.max(regCount, userProgramsCount),
             starsEarned: starBalance || 0,
-            lifetimeStarsEarned: progress.lifetimeStarsEarned || 0,
+            lifetimeStarsEarned: Number(progress.lifetimeStarsEarned) || lifetimeFloor,
             componentsReset: progress.componentsReset || 0,
             starsSpent: progress.starsSpent || 0,
             consecutiveCorrect: progress.consecutiveCorrect || 0,

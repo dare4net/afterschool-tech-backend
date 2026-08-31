@@ -21,8 +21,9 @@ describe('Lesson hunt summaries', () => {
         assert.equal(hunt.practicePoints, 10);
         assert.equal(hunt.livePoints, 6);
         assert.equal(hunt.totalPoints, 16);
-        assert.equal(hunt.maxStars, 5);
+        assert.equal(hunt.maxStars, 15);
         assert.equal(hunt.activities.length, 2);
+        assert.equal(hunt.activities[1].maxStars, 15);
     });
 
     it('is wired into module lessons and curriculum search', () => {

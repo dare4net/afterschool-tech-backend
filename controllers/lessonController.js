@@ -5,6 +5,7 @@ const { resolveLessonViewerUserId } = require('../helpers/actorUser');
 const { resolveLessonRef } = require('../helpers/lessonRef');
 const curriculumDrops = require('../helpers/curriculumDrops');
 const { summarizeLessonHunt } = require('../helpers/lessonHunt');
+const { applySequentialUnlock, earlyUnlockIdsFor, fetchLessonLock } = require('../helpers/lessonUnlock');
 
 // Redis disabled
 const redis = null;
@@ -106,6 +107,18 @@ exports.getLessonDetails = async (req, res) => {
       },
       interaction: interaction
     };
+
+    if (req.user?.role === 'student' && userIdString) {
+      try {
+        const lock = await fetchLessonLock(userIdString, lessonId);
+        response.lesson.locked = Boolean(lock.locked);
+        response.lesson.unlockCost = lock.cost;
+        response.lesson.unlockedByStars = Boolean(lock.unlockedByStars);
+        response.unlock = lock;
+      } catch (lockErr) {
+        console.warn('[LESSON] Unlock check failed:', lockErr.message);
+      }
+    }
 
     console.log('[LESSON] Success Response sent for lesson:', contentData.id);
     res.json(response);
@@ -449,6 +462,10 @@ exports.getModuleLessons = async (req, res) => {
     });
 
     console.log(`[LESSON] Success Response: Found ${lessonsWithStatus.length} lessons in module`);
+    if (req.user?.role === 'student') {
+      const earlyIds = await earlyUnlockIdsFor(userId);
+      return res.json(applySequentialUnlock(lessonsWithStatus, earlyIds));
+    }
     res.json(lessonsWithStatus);
   } catch (error) {
     console.error('MongoDB Error:', error);
@@ -485,6 +502,7 @@ exports.getAllLessonsByUser = async (req, res) => {
     }
 
     const allConsolidatedLessons = [];
+    const earlyIds = await earlyUnlockIdsFor(userIdString);
 
     // 2. Iterate through all programs
     for (const programId of user.programs) {
@@ -558,7 +576,14 @@ exports.getAllLessonsByUser = async (req, res) => {
           })
           .toArray();
 
-        // Format lessons
+        const orderIndex = new Map((moduleDetails.lessons || []).map((id, index) => [String(id), index]));
+        accessibleLessons.sort((a, b) => {
+          const left = orderIndex.has(String(a._id)) ? orderIndex.get(String(a._id)) : (Number(a.order) || 999);
+          const right = orderIndex.has(String(b._id)) ? orderIndex.get(String(b._id)) : (Number(b.order) || 999);
+          return left - right;
+        });
+
+        const formatted = [];
         for (const lesson of accessibleLessons) {
           const astLesson = astLessons.find(l => l._id.toString() === lesson.lesson_data?.toString());
           if (!astLesson) continue;
@@ -575,7 +600,7 @@ exports.getAllLessonsByUser = async (req, res) => {
             resolvedThumbnail = null;
           }
 
-          allConsolidatedLessons.push({
+          formatted.push({
             ...lesson,
             lessonId: astLesson.id,
             program: programName,
@@ -586,6 +611,7 @@ exports.getAllLessonsByUser = async (req, res) => {
             status: interaction?.lessonState?.progress === 100 ? 'COMPLETED' : (interaction ? 'IN_PROGRESS' : 'NEW')
           });
         }
+        allConsolidatedLessons.push(...applySequentialUnlock(formatted, earlyIds));
       }
     }
 

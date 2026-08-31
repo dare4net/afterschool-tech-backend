@@ -1,5 +1,6 @@
 const defaultUsersRepo = require('../repositories/usersRepo');
 const defaultWalletRepo = require('../repositories/walletRepo');
+const { recordProgressEvent: defaultRecordProgress } = require('./studentProgress');
 const { sanitizeHandle, handleError, isAccentColor, isAvatarId } = require('./publicProfile');
 
 const ONBOARDING_BONUS = 5;
@@ -23,6 +24,7 @@ function identityFrom(user) {
 function createOnboarding({
     usersRepo = defaultUsersRepo,
     walletRepo = defaultWalletRepo,
+    recordProgressEvent = defaultRecordProgress,
 } = {}) {
     async function complete(userId, body = {}) {
         const user = await usersRepo.findByUserId(userId);
@@ -77,6 +79,9 @@ function createOnboarding({
                 upsert: true,
             });
             starBalance = wallet ? wallet.starBalance : bonusAwarded;
+            if (typeof recordProgressEvent === 'function') {
+                await recordProgressEvent(userId, 'STARS_AWARDED', { amount: bonusAwarded });
+            }
         }
 
         const updated = await usersRepo.findByUserId(userId);
