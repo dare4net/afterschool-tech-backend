@@ -8,6 +8,7 @@ const curriculumDrops = require('../helpers/curriculumDrops');
 const { log } = require('../helpers/logger');
 const { recordProgressEvent } = require('../helpers/studentProgress');
 const prideStats = require('../helpers/prideStats');
+const { notify } = require('../helpers/notify');
 
 const TUTOR_SESSION_LOCK_MS = 8000;
 
@@ -1458,6 +1459,18 @@ exports.markStudentResponse = async (req, res) => {
                 isFirstAttempt: previousScore === 0,
             }, progressAfter);
         }
+
+        await notify({
+            userId: studentId,
+            type: 'TUTOR_MARKED',
+            actorId: user_id,
+            title: isApproved ? 'Your tutor marked your work' : 'Your tutor reviewed your work',
+            body: isApproved
+                ? `You scored ${awardedPoints} point${awardedPoints === 1 ? '' : 's'}. Open the lesson to see it.`
+                : 'Open the lesson to see their feedback.',
+            href: '/dashboard/student',
+            payload: { lessonId, componentId, awardedPoints, isApproved: Boolean(isApproved) },
+        });
 
         res.json({ message: 'Response marked successfully', awardedPoints });
     } catch (error) {

@@ -168,6 +168,7 @@ describe('W0 notifications inbox', () => {
             'CROWN_GOLD',
             'PROGRAM_LESSON_PUBLISHED',
             'PROGRAM_MODULE_PUBLISHED',
+            'TUTOR_MARKED',
         ]);
     });
 
