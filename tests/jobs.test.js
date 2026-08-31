@@ -11,7 +11,6 @@ const {
     lessonCopy,
 } = require('../helpers/reminderAudience');
 const { catalog, createJobs } = require('../helpers/jobs');
-const { isPushConfigured } = require('../helpers/pushDispatch');
 
 const ROOT = join(__dirname, '..');
 const read = (relative) => readFileSync(join(ROOT, relative), 'utf8');
@@ -22,6 +21,7 @@ function memoryJobs({
     programs = [],
     sent = new Set(),
     delivered = false,
+    tokensByUser = {},
 } = {}) {
     const runs = [];
     const pushes = [];
@@ -41,11 +41,41 @@ function memoryJobs({
                 return programs;
             },
         },
+        usersRepo: {
+            async listFcmTokens(userId) {
+                if (Object.prototype.hasOwnProperty.call(tokensByUser, userId)) {
+                    return tokensByUser[userId];
+                }
+                return ['test-token'];
+            },
+            async countWithFcmTokens() {
+                return Object.keys(tokensByUser).length;
+            },
+            async findSafeByUserIds(userIds) {
+                return (userIds || []).map((userId) => ({
+                    user_id: userId,
+                    handle: `user_${userId}`,
+                    full_name: `Student ${userId}`,
+                }));
+            },
+        },
         jobsRepo: {
-            async latestByJobIds(ids) {
+            async latestRunsByJobIds(ids) {
                 const out = {};
                 for (const id of ids) {
-                    out[id] = runs.filter((run) => run.jobId === id).at(-1) || null;
+                    const jobRuns = runs.filter((run) => run.jobId === id);
+                    out[id] = {
+                        lastPreview: jobRuns.filter((run) => run.dryRun).at(-1) || null,
+                        lastSend: jobRuns.filter((run) => !run.dryRun).at(-1) || null,
+                    };
+                }
+                return out;
+            },
+            async latestByJobIds(ids) {
+                const pairs = await this.latestRunsByJobIds(ids);
+                const out = {};
+                for (const id of ids) {
+                    out[id] = pairs[id].lastSend || pairs[id].lastPreview || null;
                 }
                 return out;
             },
@@ -127,6 +157,7 @@ describe('manual cron jobs', () => {
         assert.equal(preview.dryRun, true);
         assert.equal(preview.candidates, 1);
         assert.equal(preview.dispatched, 0);
+        assert.equal(preview.wouldSend, 1);
         assert.equal(deps.pushes.length, 0);
 
         const run = await jobs.runJob('streak_reminders', {
@@ -134,10 +165,52 @@ describe('manual cron jobs', () => {
             now: new Date('2026-08-31T18:00:00.000Z'),
         });
         assert.equal(run.dryRun, false);
-        assert.equal(run.queued, 1);
         assert.equal(run.dispatched, 0);
+        assert.equal(run.sendFailed, 1);
         assert.equal(deps.pushes.length, 1);
         assert.equal(deps.pushes[0].type, 'STREAK_REMINDER');
+    });
+
+    it('counts eligible students without device tokens separately', async () => {
+        const deps = memoryJobs({
+            streakRows: [{ user_id: 's1', loginStreak: 3, lastLoginDate: '2026-08-30' }],
+            tokensByUser: { s1: [] },
+        });
+        const jobs = createJobs(deps);
+        const preview = await jobs.runJob('streak_reminders', {
+            dryRun: true,
+            now: new Date('2026-08-31T18:00:00.000Z'),
+        });
+        assert.equal(preview.candidates, 1);
+        assert.equal(preview.wouldSend, 0);
+        assert.equal(preview.noToken, 1);
+        assert.equal(preview.recipients.length, 1);
+        assert.equal(preview.recipients[0].status, 'no_token');
+        assert.equal(preview.recipients[0].handle, 'user_s1');
+    });
+
+    it('returns full recipient rows with status on preview and send', async () => {
+        const deps = memoryJobs({
+            streakRows: [{ user_id: 's1', loginStreak: 5, lastLoginDate: '2026-08-30' }],
+            tokensByUser: { s1: ['tok-a'] },
+            delivered: true,
+        });
+        const jobs = createJobs(deps);
+        const preview = await jobs.runJob('streak_reminders', {
+            dryRun: true,
+            now: new Date('2026-08-31T18:00:00.000Z'),
+        });
+        assert.equal(preview.recipients[0].status, 'would_send');
+        assert.equal(preview.recipients[0].loginStreak, 5);
+        assert.match(preview.recipients[0].title, /5-day/);
+
+        const send = await jobs.runJob('streak_reminders', {
+            dryRun: false,
+            now: new Date('2026-08-31T18:05:00.000Z'),
+        });
+        assert.equal(send.recipients[0].status, 'sent');
+        assert.equal(deps.runs.filter((run) => !run.dryRun).length, 1);
+        assert.equal(deps.runs.filter((run) => run.dryRun).length, 1);
     });
 
     it('skips a student already reminded today once FCM actually delivers', async () => {
@@ -163,7 +236,6 @@ describe('manual cron jobs', () => {
     it('exposes the two reminder jobs on the superadmin console', () => {
         const ids = catalog().map((job) => job.id);
         assert.deepEqual(ids, ['streak_reminders', 'lesson_reminders']);
-        assert.equal(isPushConfigured(), false);
 
         const routes = read('routes/superadminRoutes.js');
         assert.match(routes, /router\.get\('\/jobs'/);

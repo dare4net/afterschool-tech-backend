@@ -134,6 +134,12 @@ async function removeFcmToken(userId, token) {
     return listFcmTokens(userId);
 }
 
+async function countWithFcmTokens() {
+    return (await col()).countDocuments({
+        fcmTokens: { $exists: true, $not: { $size: 0 } },
+    });
+}
+
 module.exports = {
     COLLECTION,
     ensureIndexes,
@@ -146,5 +152,6 @@ module.exports = {
     listFcmTokens,
     addFcmToken,
     removeFcmToken,
+    countWithFcmTokens,
     FCM_TOKEN_CAP,
 };
