@@ -5,7 +5,7 @@ const { join } = require('node:path');
 const { nextStreakState, streakMilestoneReward } = require('../helpers/loginStreak');
 const { applyLoginStreak } = require('../helpers/applyLoginStreak');
 const { createStarStore } = require('../helpers/starStore');
-const { lessonResetCost, upgradeCost, getItem, maxStarsForLesson } = require('../helpers/starMarket');
+const { lessonResetCost, upgradeCost, getItem, maxStarsForLesson, CERTIFICATE_PRINT_COST } = require('../helpers/starMarket');
 
 const read = (relative) => readFileSync(join(__dirname, '..', relative), 'utf8');
 
@@ -39,8 +39,8 @@ describe('W5 store and login streak', () => {
                 { components: [{ type: 'paragraph' }] },
             ],
         };
-        assert.equal(maxStarsForLesson(content), 14);
-        assert.equal(lessonResetCost(content), Math.ceil(14 * 1.5));
+        assert.equal(maxStarsForLesson(content), 10);
+        assert.equal(lessonResetCost(content), Math.max(21, Math.ceil(10 * 1.5)));
         const item = getItem('live_time');
         assert.equal(upgradeCost(item, 1), 40);
         assert.equal(upgradeCost(item, 2), 80);
@@ -134,6 +134,41 @@ describe('W5 store and login streak', () => {
         assert.equal(progress.lastStreakBonusStars, 10);
     });
 
+    it('prints a certificate for a cheap star spend every time', async () => {
+        assert.equal(CERTIFICATE_PRINT_COST, 5);
+        const wallets = new Map();
+        wallets.set('u1', { user_id: 'u1', starBalance: 12, transactions: [] });
+        const api = createStarStore({
+            walletRepo: {
+                findByUserId: async (userId) => wallets.get(userId) || null,
+                getOrCreate: async (userId) => wallets.get(userId),
+                spendTransaction: (amount, itemType) => ({ type: 'spend', amount, itemType }),
+                applyBalanceChange: async (userId, { inc, transaction }) => {
+                    const wallet = wallets.get(userId);
+                    wallet.starBalance += inc;
+                    wallet.transactions.push(transaction);
+                    return wallet;
+                },
+            },
+            recordProgressEvent: async () => ({}),
+            inventoryRepo: {
+                getOrCreate: async () => ({ items: {}, buffs: {} }),
+                update: async () => ({}),
+            },
+        });
+        const first = await api.printCertificate('u1', 'lesson', 'L1');
+        assert.equal(first.error, undefined);
+        assert.equal(first.cost, 5);
+        assert.equal(first.starBalance, 7);
+        assert.ok(first.printedAt);
+        const second = await api.printCertificate('u1', 'pride', 'loginStreak');
+        assert.equal(second.starBalance, 2);
+        const broke = await api.printCertificate('u1', 'lesson', 'L1');
+        assert.equal(broke.error, 'Insufficient star balance');
+        assert.match(read('routes/storeRoutes.js'), /print-certificate/);
+        assert.match(read('controllers/storeController.js'), /printCertificate/);
+    });
+
     it('lists login streak on the pride catalog and mounts the store', () => {
         const catalog = read('helpers/prideCatalog.js');
         assert.match(catalog, /key: 'loginStreak'/);
@@ -141,5 +176,75 @@ describe('W5 store and login streak', () => {
         assert.match(server, /app\.use\('\/api\/store',\s*storeRoutes\)/);
         assert.equal(read('controllers/storeController.js').includes('getMainDb'), false);
         assert.equal(read('controllers/storeController.js').includes('db.collection'), false);
+    });
+
+    it('sells hint packs, block resets, references, and cosmetics', async () => {
+        assert.equal(getItem('hint_pack').kind, 'consumable');
+        assert.equal(getItem('live_block_reset').chargeCost, 10);
+        assert.equal(getItem('reference_credit').kind, 'consumable');
+        assert.equal(getItem('avatar_frame').kind, 'cosmetic');
+        const routes = read('routes/storeRoutes.js');
+        assert.match(routes, /\/consume/);
+        assert.match(routes, /\/reset-block/);
+        assert.match(routes, /\/open-reference/);
+        assert.match(read('controllers/studioController.js'), /COMPONENT_SUBMITTED/);
+        assert.match(read('controllers/studioController.js'), /tutorResetState/);
+
+        const wallets = new Map();
+        const inventory = new Map();
+        let cleared = 0;
+        wallets.set('u1', { user_id: 'u1', starBalance: 40, transactions: [] });
+        inventory.set('u1', { user_id: 'u1', items: { live_block_reset: { level: 1, charges: 1 }, reference_credit: { level: 1, charges: 1 } }, buffs: {} });
+        const api = createStarStore({
+            walletRepo: {
+                findByUserId: async (userId) => wallets.get(userId) || null,
+                getOrCreate: async (userId) => wallets.get(userId),
+                spendTransaction: (amount, itemType) => ({ type: 'spend', amount, itemType }),
+                applyBalanceChange: async (userId, { inc, transaction }) => {
+                    const wallet = wallets.get(userId);
+                    wallet.starBalance += inc;
+                    wallet.transactions.push(transaction);
+                    return wallet;
+                },
+            },
+            recordProgressEvent: async () => ({}),
+            inventoryRepo: {
+                getOrCreate: async (userId) => inventory.get(userId) || { user_id: userId, items: {}, buffs: {} },
+                update: async (userId, update) => {
+                    const current = inventory.get(userId) || { user_id: userId, items: {}, buffs: {} };
+                    current.items = current.items || {};
+                    if (update.$inc) {
+                        for (const [path, delta] of Object.entries(update.$inc)) {
+                            const match = String(path).match(/^items\.([^.]+)\.charges$/);
+                            if (match) {
+                                current.items[match[1]] = current.items[match[1]] || { level: 1, charges: 0 };
+                                current.items[match[1]].charges += delta;
+                            }
+                        }
+                    }
+                    inventory.set(userId, current);
+                    return current;
+                },
+            },
+            interactionsRepo: {
+                clearComponent: async () => {
+                    cleared += 1;
+                    return { version: 2 };
+                },
+            },
+            resolveLesson: async () => ({ publicId: 'L1', content: { slides: [] } }),
+        });
+
+        const reset = await api.resetBlock('u1', 'L1', 'c1');
+        assert.equal(reset.error, undefined);
+        assert.equal(reset.usedCharge, true);
+        assert.equal(cleared, 1);
+        const practice = await api.openReference('u1', 'practice');
+        assert.equal(practice.spent, false);
+        const live = await api.openReference('u1', 'live');
+        assert.equal(live.usedCredit, true);
+        const livePaid = await api.openReference('u1', 'live');
+        assert.equal(livePaid.usedCredit, false);
+        assert.equal(livePaid.cost, 3);
     });
 });

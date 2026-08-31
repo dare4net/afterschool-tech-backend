@@ -75,6 +75,9 @@ async function updateIdentity(userId, patch) {
     if (patch.isPublicProfile !== undefined) $set.isPublicProfile = patch.isPublicProfile;
     if (patch.accentColor !== undefined) $set.accentColor = patch.accentColor;
     if (patch.avatarId !== undefined) $set.avatarId = patch.avatarId;
+    if (patch.avatarFrame !== undefined) $set.avatarFrame = patch.avatarFrame;
+    if (patch.nameplate !== undefined) $set.nameplate = patch.nameplate;
+    if (patch.pinnedStatKey !== undefined) $set.pinnedStatKey = patch.pinnedStatKey;
     if (patch.onboardingCompletedAt !== undefined) $set.onboardingCompletedAt = patch.onboardingCompletedAt;
     if (patch.onboardingSkippedAt !== undefined) $set.onboardingSkippedAt = patch.onboardingSkippedAt;
     if (patch.onboardingBonusAwarded !== undefined) $set.onboardingBonusAwarded = patch.onboardingBonusAwarded;

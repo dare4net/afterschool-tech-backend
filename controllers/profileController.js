@@ -1,7 +1,13 @@
 const { getMainDb } = require('../config/database');
 const usersRepo = require('../repositories/usersRepo');
-const { sanitizeHandle, handleError, isAccentColor, isAvatarId } = require('../helpers/publicProfile');
+const inventoryRepo = require('../repositories/inventoryRepo');
+const { sanitizeHandle, handleError, isAccentColor, isAvatarId, PREMIUM_ACCENT_COLORS } = require('../helpers/publicProfile');
 const prideStats = require('../helpers/prideStats');
+
+async function ownsSku(userId, sku) {
+  const inventory = await inventoryRepo.getOrCreate(userId);
+  return (Number(inventory.items?.[sku]?.charges) || 0) > 0;
+}
 
 // Helper: get collection name by role (previously table)
 function getCollectionByRole(role) {
@@ -46,6 +52,9 @@ exports.getProfile = async (req, res) => {
     profile.isPublicProfile = user.isPublicProfile === true;
     profile.accentColor = user.accentColor || null;
     profile.avatarId = user.avatarId || null;
+    profile.avatarFrame = user.avatarFrame || null;
+    profile.nameplate = user.nameplate || null;
+    profile.pinnedStatKey = user.pinnedStatKey || null;
     profile.onboardingCompletedAt = user.onboardingCompletedAt || null;
     profile.onboardingSkippedAt = user.onboardingSkippedAt || null;
     res.json(profile);
@@ -94,7 +103,7 @@ exports.updateProfile = async (req, res) => {
   const userId = req.user.user_id;
   const role = req.user.role;
   const body = req.validatedBody || req.body || {};
-  const { full_name, handle, isPublicProfile, accentColor, avatarId, ...rest } = body;
+  const { full_name, handle, isPublicProfile, accentColor, avatarId, avatarFrame, nameplate, pinnedStatKey, ...rest } = body;
 
   try {
     const current = await usersRepo.findByUserId(userId);
@@ -127,6 +136,9 @@ exports.updateProfile = async (req, res) => {
       if (!isAccentColor(accentColor)) {
         return res.status(400).json({ error: 'Pick a handle color' });
       }
+      if (PREMIUM_ACCENT_COLORS.includes(accentColor) && !(await ownsSku(userId, 'accent_pack'))) {
+        return res.status(400).json({ error: 'Buy the accent pack first' });
+      }
       identityPatch.accentColor = accentColor;
     }
 
@@ -135,6 +147,27 @@ exports.updateProfile = async (req, res) => {
         return res.status(400).json({ error: 'Pick an avatar' });
       }
       identityPatch.avatarId = avatarId;
+    }
+
+    if (avatarFrame !== undefined) {
+      if (avatarFrame === 'gold' && !(await ownsSku(userId, 'avatar_frame'))) {
+        return res.status(400).json({ error: 'Buy the gold frame first' });
+      }
+      identityPatch.avatarFrame = avatarFrame || '';
+    }
+
+    if (nameplate !== undefined) {
+      if (nameplate === 'duo' && !(await ownsSku(userId, 'nameplate'))) {
+        return res.status(400).json({ error: 'Buy the nameplate first' });
+      }
+      identityPatch.nameplate = nameplate || '';
+    }
+
+    if (pinnedStatKey !== undefined) {
+      if (pinnedStatKey && !(await ownsSku(userId, 'pride_pin'))) {
+        return res.status(400).json({ error: 'Buy a pride pin first' });
+      }
+      identityPatch.pinnedStatKey = pinnedStatKey;
     }
 
     if (Object.keys(identityPatch).length > 0) {
@@ -147,7 +180,7 @@ exports.updateProfile = async (req, res) => {
     if (collection && Object.keys(rest).length > 0) {
       const updateData = {};
       for (const [key, value] of Object.entries(rest)) {
-        if (value !== undefined && !['_id', 'user_id', 'password_hash', 'email', 'handle', 'isPublicProfile', 'accentColor', 'avatarId'].includes(key)) {
+        if (value !== undefined && !['_id', 'user_id', 'password_hash', 'email', 'handle', 'isPublicProfile', 'accentColor', 'avatarId', 'avatarFrame', 'nameplate', 'pinnedStatKey'].includes(key)) {
           updateData[key] = value;
         }
       }
@@ -175,6 +208,9 @@ exports.updateProfile = async (req, res) => {
       isPublicProfile: updated?.isPublicProfile === true,
       accentColor: updated?.accentColor || null,
       avatarId: updated?.avatarId || null,
+      avatarFrame: updated?.avatarFrame || null,
+      nameplate: updated?.nameplate || null,
+      pinnedStatKey: updated?.pinnedStatKey || null,
     });
   } catch (err) {
     if (err && err.code === 11000) {

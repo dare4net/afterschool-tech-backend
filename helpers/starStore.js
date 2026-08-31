@@ -13,6 +13,9 @@ const {
     publicItem,
     lessonResetCost,
     maxStarsForLesson,
+    CERTIFICATE_PRINT_COST,
+    BLOCK_RESET_COST,
+    REFERENCE_LIVE_COST,
 } = require('./starMarket');
 
 function createStarStore({
@@ -132,6 +135,24 @@ function createStarStore({
         };
     }
 
+    async function consumeCharge(userId, sku) {
+        const item = getItem(sku);
+        if (!item || (item.kind !== 'consumable' && item.kind !== 'buff')) {
+            return { error: 'Unknown consumable', status: 400 };
+        }
+        const inventory = await inventoryRepo.getOrCreate(userId);
+        const current = inventory.items?.[sku] || { level: 1, charges: 0 };
+        const charges = Number(current.charges) || 0;
+        if (charges < 1) return { error: 'No charges left', status: 400 };
+        const level = Math.max(1, Number(current.level) || 1);
+        const effect = item.effectAt(level);
+        const next = await inventoryRepo.update(userId, {
+            $inc: { [`items.${sku}.charges`]: -1 },
+            $set: { updated_at: new Date() },
+        });
+        return { consumed: true, sku, effect, inventory: inventoryView(next) };
+    }
+
     async function consumeBuff(userId, sku) {
         const inventory = await inventoryRepo.getOrCreate(userId);
         const remaining = Number(inventory.buffs?.[sku]?.remaining) || 0;
@@ -180,13 +201,76 @@ function createStarStore({
         };
     }
 
+    async function resetBlock(userId, lessonId, componentId) {
+        const ref = await resolveLesson(lessonId);
+        const publicId = ref?.publicId || lessonId;
+        if (!ref?.content) return { error: 'Lesson not found', status: 404 };
+        const inventory = await inventoryRepo.getOrCreate(userId);
+        const charges = Number(inventory.items?.live_block_reset?.charges) || 0;
+        let paid;
+        if (charges > 0) {
+            paid = await consumeCharge(userId, 'live_block_reset');
+            if (paid.error) return paid;
+        } else {
+            paid = await spend(userId, BLOCK_RESET_COST, `block_reset:${publicId}:${componentId}`);
+            if (paid.error) return paid;
+        }
+        const cleared = await interactionsRepo.clearComponent(userId, publicId, componentId);
+        return {
+            ...paid,
+            lessonId: publicId,
+            componentId,
+            cost: charges > 0 ? 0 : BLOCK_RESET_COST,
+            usedCharge: charges > 0,
+            version: cleared.version,
+            wiped: true,
+        };
+    }
+
+    async function openReference(userId, kind) {
+        if (kind !== 'live') {
+            return { spent: false, cost: 0, usedCredit: false };
+        }
+        const inventory = await inventoryRepo.getOrCreate(userId);
+        const charges = Number(inventory.items?.reference_credit?.charges) || 0;
+        if (charges > 0) {
+            const used = await consumeCharge(userId, 'reference_credit');
+            if (used.error) return used;
+            return { ...used, spent: true, cost: 0, usedCredit: true };
+        }
+        const paid = await spend(userId, REFERENCE_LIVE_COST, 'reference:live');
+        if (paid.error) return paid;
+        return { ...paid, spent: true, cost: REFERENCE_LIVE_COST, usedCredit: false };
+    }
+
+    async function printCertificate(userId, kind, ref) {
+        const type = String(kind || '');
+        if (type !== 'lesson' && type !== 'pride') {
+            return { error: 'Unknown certificate', status: 400 };
+        }
+        const marker = String(ref || '').slice(0, 128);
+        const itemType = marker ? `certificate:${type}:${marker}` : `certificate:${type}`;
+        const paid = await spend(userId, CERTIFICATE_PRINT_COST, itemType);
+        if (paid.error) return paid;
+        return {
+            ...paid,
+            kind: type,
+            cost: CERTIFICATE_PRINT_COST,
+            printedAt: new Date().toISOString(),
+        };
+    }
+
     return {
         snapshot,
         buyCharge,
         upgrade,
         activate,
         consumeBuff,
+        consumeCharge,
         resetLesson,
+        resetBlock,
+        openReference,
+        printCertificate,
         inventoryView,
     };
 }
@@ -200,5 +284,9 @@ module.exports = {
     upgrade: defaults.upgrade,
     activate: defaults.activate,
     consumeBuff: defaults.consumeBuff,
+    consumeCharge: defaults.consumeCharge,
     resetLesson: defaults.resetLesson,
+    resetBlock: defaults.resetBlock,
+    openReference: defaults.openReference,
+    printCertificate: defaults.printCertificate,
 };

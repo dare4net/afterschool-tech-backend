@@ -1,6 +1,11 @@
 const { SCORED_COMPONENT_TYPES } = require('../contracts/platform');
 
-const MAX_STARS_PER_LIVE_BLOCK = 7;
+const MAX_STARS_PER_LIVE_BLOCK = 5;
+const CERTIFICATE_PRINT_COST = 5;
+const BLOCK_RESET_COST = 10;
+const REFERENCE_LIVE_COST = 3;
+
+const PREMIUM_ACCENT_COLORS = ['#14B8A6', '#F472B6', '#0EA5E9'];
 
 const STORE_ITEMS = {
     live_time: {
@@ -69,6 +74,83 @@ const STORE_ITEMS = {
         effectLabel: 'freezes stored',
         effectAt: (level) => level,
     },
+    hint_pack: {
+        sku: 'hint_pack',
+        name: 'Hint Pack',
+        kind: 'consumable',
+        description: 'Extra letter reveals after the free hints run out.',
+        maxLevel: 3,
+        chargeCost: 8,
+        upgradeBase: 24,
+        effectLabel: 'extra hints',
+        effectAt: (level) => 2 + level,
+    },
+    live_block_reset: {
+        sku: 'live_block_reset',
+        name: 'Block Reset',
+        kind: 'consumable',
+        description: 'Wipe one live block so you can try it again.',
+        maxLevel: 1,
+        chargeCost: 10,
+        upgradeBase: 0,
+        effectLabel: 'block resets',
+        effectAt: () => 1,
+    },
+    reference_credit: {
+        sku: 'reference_credit',
+        name: 'Reference Credit',
+        kind: 'consumable',
+        description: 'Open a tutor reference during a live block.',
+        maxLevel: 1,
+        chargeCost: 6,
+        upgradeBase: 0,
+        effectLabel: 'live opens',
+        effectAt: () => 1,
+    },
+    avatar_frame: {
+        sku: 'avatar_frame',
+        name: 'Gold Frame',
+        kind: 'cosmetic',
+        description: 'A gold ring around your avatar on pride boards.',
+        maxLevel: 1,
+        chargeCost: 45,
+        upgradeBase: 0,
+        effectLabel: 'owned',
+        effectAt: () => 1,
+    },
+    nameplate: {
+        sku: 'nameplate',
+        name: 'Duo Nameplate',
+        kind: 'cosmetic',
+        description: 'A bold nameplate behind your display name.',
+        maxLevel: 1,
+        chargeCost: 35,
+        upgradeBase: 0,
+        effectLabel: 'owned',
+        effectAt: () => 1,
+    },
+    accent_pack: {
+        sku: 'accent_pack',
+        name: 'Accent Pack',
+        kind: 'cosmetic',
+        description: 'Unlock extra profile colors for the pride board.',
+        maxLevel: 1,
+        chargeCost: 40,
+        upgradeBase: 0,
+        effectLabel: 'owned',
+        effectAt: () => 1,
+    },
+    pride_pin: {
+        sku: 'pride_pin',
+        name: 'Pride Pin',
+        kind: 'cosmetic',
+        description: 'Pin one pride stat on your public profile.',
+        maxLevel: 1,
+        chargeCost: 55,
+        upgradeBase: 0,
+        effectLabel: 'owned',
+        effectAt: () => 1,
+    },
 };
 
 function getItem(sku) {
@@ -121,6 +203,7 @@ function publicItem(item, inventoryItem = {}) {
         maxLevel: item.maxLevel,
         level,
         charges: Number(inventoryItem.charges) || 0,
+        owned: item.kind === 'cosmetic' && (Number(inventoryItem.charges) || 0) > 0,
         effect: item.effectAt(level),
         effectLabel: item.effectLabel,
         chargeCost: chargeCost(item),
@@ -132,6 +215,10 @@ function publicItem(item, inventoryItem = {}) {
 module.exports = {
     STORE_ITEMS,
     MAX_STARS_PER_LIVE_BLOCK,
+    CERTIFICATE_PRINT_COST,
+    BLOCK_RESET_COST,
+    REFERENCE_LIVE_COST,
+    PREMIUM_ACCENT_COLORS,
     getItem,
     upgradeCost,
     chargeCost,

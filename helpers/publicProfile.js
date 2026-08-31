@@ -36,6 +36,8 @@ function handleError(handle) {
 }
 
 const ACCENT_COLORS = ['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B'];
+const PREMIUM_ACCENT_COLORS = ['#14B8A6', '#F472B6', '#0EA5E9'];
+const ALL_ACCENT_COLORS = [...ACCENT_COLORS, ...PREMIUM_ACCENT_COLORS];
 
 const AVATAR_IDS = [
     'nova', 'pixel', 'comet', 'mango', 'kiwi', 'blaze',
@@ -45,8 +47,8 @@ const AVATAR_IDS = [
 ];
 
 function isAccentColor(value) {
-    return ACCENT_COLORS.includes(String(value || '').toUpperCase())
-        || ACCENT_COLORS.includes(String(value || ''));
+    const hex = String(value || '');
+    return ALL_ACCENT_COLORS.includes(hex) || ALL_ACCENT_COLORS.includes(hex.toUpperCase());
 }
 
 function defaultAccentColor(handle) {
@@ -63,7 +65,7 @@ function resolveAccentColor(userOrHandle, chosen) {
         ? userOrHandle.accentColor
         : chosen;
     if (isAccentColor(picked)) {
-        const match = ACCENT_COLORS.find((color) => color.toLowerCase() === String(picked).toLowerCase());
+        const match = ALL_ACCENT_COLORS.find((color) => color.toLowerCase() === String(picked).toLowerCase());
         return match || ACCENT_COLORS[0];
     }
     const handle = typeof userOrHandle === 'object' && userOrHandle
@@ -107,6 +109,9 @@ function publicProfileFields(user) {
         displayName: user.full_name || user.name || user.handle || 'Student',
         accentColor: resolveAccentColor(user),
         avatarId: resolveAvatarId(user),
+        avatarFrame: user.avatarFrame || null,
+        nameplate: user.nameplate || null,
+        pinnedStatKey: user.pinnedStatKey || null,
     };
 }
 
@@ -156,6 +161,8 @@ module.exports = {
     sanitizeHandle,
     handleError,
     ACCENT_COLORS,
+    PREMIUM_ACCENT_COLORS,
+    ALL_ACCENT_COLORS,
     isAccentColor,
     defaultAccentColor,
     resolveAccentColor,

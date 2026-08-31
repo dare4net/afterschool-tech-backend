@@ -6,6 +6,37 @@ const { interactionLessonIds } = require('../helpers/lessonRef');
 const { decideWrite, versionMatchFilter, currentVersion } = require('../helpers/optimisticVersion');
 const curriculumDrops = require('../helpers/curriculumDrops');
 const { log } = require('../helpers/logger');
+const { recordProgressEvent } = require('../helpers/studentProgress');
+const prideStats = require('../helpers/prideStats');
+
+const TUTOR_SESSION_LOCK_MS = 8000;
+
+function tutorResetState(type) {
+    const base = {
+        wasReset: true,
+        status: 'uncompleted',
+        isSubmitted: false,
+        isPendingMarking: false,
+        userResponse: '',
+        userAnswers: {},
+        score: 0,
+        tutorMarked: false,
+        resetAt: new Date(),
+    };
+    if (type === 'categorise') {
+        return { ...base, assignments: {}, selectedItemId: null, placements: {} };
+    }
+    if (type === 'hotspot') {
+        return { ...base, selectedIds: [], isRevealed: false, revealed: false };
+    }
+    if (type === 'matchingPairs') {
+        return { ...base, matches: {}, selectedLeft: null };
+    }
+    if (type === 'wordScramble' || type === 'anagram') {
+        return { ...base, submitted: false, revealedIndices: [], revealsUsed: 0 };
+    }
+    return base;
+}
 
 // Helper to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -1316,7 +1347,7 @@ exports.markStudentResponse = async (req, res) => {
     try {
         const interactionsDb = await getLessonsDb();
         const { studentId, lessonId, componentId } = req.params;
-        const { score, isApproved } = req.body;
+        const { score, isApproved, type: componentType, maxScore } = req.body;
         const user_id = req.user.user_id;
 
         const possibleLessonIds = await interactionLessonIds(lessonId);
@@ -1338,7 +1369,7 @@ exports.markStudentResponse = async (req, res) => {
             const lastActive = existingInteraction.lastStudentActiveAt || existingInteraction.lastActiveAt;
             if (lastActive) {
                 const diffMs = Date.now() - new Date(lastActive).getTime();
-                if (diffMs < 30000) {
+                if (diffMs < TUTOR_SESSION_LOCK_MS) {
                     const secondsAgo = Math.max(1, Math.floor(diffMs / 1000));
                     return res.status(409).json({
                         error: 'STUDENT_SESSION_ACTIVE',
@@ -1402,6 +1433,32 @@ exports.markStudentResponse = async (req, res) => {
             }
         }
 
+        const typeKey = String(componentType || 'shortAnswer').slice(0, 64);
+        const possible = Number(maxScore) > 0 ? Number(maxScore) : (awardedPoints || 10);
+        const percentage = possible > 0 ? Math.round((awardedPoints / possible) * 100) : 0;
+        const progressAfter = await recordProgressEvent(studentId, 'COMPONENT_SUBMITTED', {
+            type: typeKey,
+            mode,
+            score: awardedPoints,
+            maxScore: possible,
+            percentage,
+            componentId,
+            lessonId,
+            isFirstAttempt: previousScore === 0,
+        });
+        if (progressAfter && !progressAfter.error) {
+            await prideStats.syncFromProgressEvent(studentId, 'COMPONENT_SUBMITTED', {
+                type: typeKey,
+                mode,
+                score: awardedPoints,
+                maxScore: possible,
+                percentage,
+                componentId,
+                lessonId,
+                isFirstAttempt: previousScore === 0,
+            }, progressAfter);
+        }
+
         res.json({ message: 'Response marked successfully', awardedPoints });
     } catch (error) {
         console.error('Error marking student response:', error);
@@ -1434,7 +1491,7 @@ exports.resetStudentComponentResponse = async (req, res) => {
             const lastActive = existingInteraction.lastStudentActiveAt || existingInteraction.lastActiveAt;
             if (lastActive) {
                 const diffMs = Date.now() - new Date(lastActive).getTime();
-                if (diffMs < 30000) {
+                if (diffMs < TUTOR_SESSION_LOCK_MS) {
                     const secondsAgo = Math.max(1, Math.floor(diffMs / 1000));
                     return res.status(409).json({
                         error: 'STUDENT_SESSION_ACTIVE',
@@ -1445,17 +1502,7 @@ exports.resetStudentComponentResponse = async (req, res) => {
             }
         }
 
-        const resetState = {
-            wasReset: true,
-            status: 'uncompleted',
-            isSubmitted: false,
-            isPendingMarking: false,
-            userResponse: '',
-            userAnswers: {},
-            score: 0,
-            tutorMarked: false,
-            resetAt: new Date()
-        };
+        const resetState = tutorResetState(req.body?.type);
 
         const result = await interactionsDb.collection('interactions').updateMany(
             { userId: { $in: possibleUserIds }, lessonId: { $in: possibleLessonIds } },

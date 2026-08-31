@@ -85,3 +85,57 @@ exports.quoteReset = async (req, res) => {
         res.status(500).json({ error: 'Failed to quote reset' });
     }
 };
+
+exports.consume = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const result = await starStore.consumeCharge(userId, req.validatedBody.sku);
+        if (result.error) return res.status(result.status || 400).json(result);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[STORE] CONSUME error:', err);
+        res.status(500).json({ error: 'Failed to consume that.' });
+    }
+};
+
+exports.resetBlock = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const result = await starStore.resetBlock(userId, req.validatedBody.lessonId, req.validatedBody.componentId);
+        if (result.error) return res.status(result.status || 400).json(result);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[STORE] RESET BLOCK error:', err);
+        res.status(500).json({ error: 'Failed to reset that block.' });
+    }
+};
+
+exports.openReference = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const kind = req.validatedBody.kind === 'live' ? 'live' : 'practice';
+        const result = await starStore.openReference(userId, kind);
+        if (result.error) return res.status(result.status || 400).json(result);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[STORE] REFERENCE error:', err);
+        res.status(500).json({ error: 'Failed to open reference.' });
+    }
+};
+
+exports.printCertificate = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const { kind, lessonId, statKey } = req.validatedBody;
+        const result = await starStore.printCertificate(userId, kind, lessonId || statKey);
+        if (result.error) return res.status(result.status || 400).json(result);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[STORE] PRINT CERT error:', err);
+        res.status(500).json({ error: 'Failed to print certificate' });
+    }
+};

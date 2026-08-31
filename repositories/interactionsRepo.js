@@ -70,9 +70,29 @@ async function deleteByUserAndLesson(userId, lessonId) {
     return { deletedCount: result.deletedCount || 0 };
 }
 
+async function clearComponent(userId, lessonId, componentId) {
+    if (!userId || !lessonId || !componentId) return { ok: false };
+    const col = await interactions();
+    const existing = await col.findOne({ userId, lessonId });
+    if (!existing) return { ok: true, missing: true, version: 0 };
+    const version = (Number(existing.version) || 0) + 1;
+    await col.updateOne(
+        { userId, lessonId },
+        {
+            $unset: {
+                [`componentsState.${componentId}`]: '',
+                [`attemptsMap.${componentId}`]: '',
+            },
+            $set: { lastUpdated: new Date(), version },
+        }
+    );
+    return { ok: true, version };
+}
+
 module.exports = {
     findByUserAndLesson,
     upsertProgress,
     touchProgramActivity,
     deleteByUserAndLesson,
+    clearComponent,
 };

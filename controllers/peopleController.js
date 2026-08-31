@@ -118,6 +118,8 @@ function publicPerson(row) {
         displayName: row.displayName || row.handle,
         accentColor: row.accentColor || null,
         avatarId: row.avatarId || null,
+        avatarFrame: row.avatarFrame || null,
+        nameplate: row.nameplate || null,
         bestCrown: row.bestCrown || row.best_crown || row.crown || null,
         following: row.following === true,
     };

@@ -181,7 +181,26 @@ const scaleRateBodySchema = z.object({
 });
 
 const storeSkuBodySchema = z.object({
-    sku: z.enum(['live_time', 'live_freeze', 'star_surge', 'second_chance', 'focus_shield', 'streak_freeze']),
+    sku: z.enum([
+        'live_time', 'live_freeze', 'star_surge', 'second_chance', 'focus_shield', 'streak_freeze',
+        'hint_pack', 'live_block_reset', 'reference_credit',
+        'avatar_frame', 'nameplate', 'accent_pack', 'pride_pin',
+    ]),
+});
+
+const storeConsumeBodySchema = z.object({
+    sku: z.enum(['hint_pack', 'live_block_reset', 'reference_credit']),
+});
+
+const storeResetBlockBodySchema = z.object({
+    lessonId: z.string().min(1).max(128),
+    componentId: z.string().min(1).max(128),
+});
+
+const storeOpenReferenceBodySchema = z.object({
+    kind: z.enum(['practice', 'live']),
+    componentId: z.string().min(1).max(128).optional(),
+    questionId: z.string().min(1).max(128).optional(),
 });
 
 const storeResetBodySchema = z.object({
@@ -192,12 +211,18 @@ const storeQuoteQuerySchema = z.object({
     lessonId: queryString,
 });
 
+const printCertificateBodySchema = z.object({
+    kind: z.enum(['lesson', 'pride']),
+    lessonId: z.string().min(1).max(128).optional(),
+    statKey: z.string().min(1).max(128).optional(),
+});
+
 const handleSchema = z.string().min(3).max(24).regex(
     /^[a-z][a-z0-9_]*$/,
     'Use a lowercase handle like maya_codes'
 );
 
-const accentColorSchema = z.enum(['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B']);
+const accentColorSchema = z.enum(['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B', '#14B8A6', '#F472B6', '#0EA5E9']);
 
 const avatarIdSchema = z.enum([
     'nova', 'pixel', 'comet', 'mango', 'kiwi', 'blaze',
@@ -212,6 +237,9 @@ const updateProfileBodySchema = z.object({
     isPublicProfile: z.boolean().optional(),
     accentColor: accentColorSchema.optional(),
     avatarId: avatarIdSchema.optional(),
+    avatarFrame: z.enum(['gold', '']).optional(),
+    nameplate: z.enum(['duo', '']).optional(),
+    pinnedStatKey: z.string().min(1).max(80).nullable().optional(),
 });
 
 const completeOnboardingBodySchema = z.object({
@@ -297,8 +325,12 @@ module.exports = {
     wordCloudAddBodySchema,
     scaleRateBodySchema,
     storeSkuBodySchema,
+    storeConsumeBodySchema,
+    storeResetBlockBodySchema,
+    storeOpenReferenceBodySchema,
     storeResetBodySchema,
     storeQuoteQuerySchema,
+    printCertificateBodySchema,
     handleSchema,
     accentColorSchema,
     avatarIdSchema,
