@@ -2,6 +2,7 @@ const { resolveInteractionUserId } = require('../helpers/actorUser');
 const { mergeComponentsState } = require('../helpers/interactionMerge');
 const { currentVersion } = require('../helpers/optimisticVersion');
 const interactionsRepo = require('../repositories/interactionsRepo');
+const { notifyIfProgressUnlockedNext } = require('../helpers/lessonUnlock');
 
 function emptyLessonState() {
     return {
@@ -44,6 +45,7 @@ exports.saveInteraction = async (req, res) => {
         const { lessonId, componentsState, lessonState, attemptsMap, version } = req.validatedBody;
 
         const existing = await interactionsRepo.findByUserAndLesson(resolved.userId, lessonId);
+        const previousProgress = Number(existing?.lessonState?.progress) || 0;
         const mergedComponentsState = mergeComponentsState(
             componentsState || {},
             existing?.componentsState || {}
@@ -62,6 +64,10 @@ exports.saveInteraction = async (req, res) => {
             });
         }
         await interactionsRepo.touchProgramActivity(resolved.userId);
+        const nextProgress = Number(lessonState?.progress) || 0;
+        notifyIfProgressUnlockedNext(resolved.userId, lessonId, previousProgress, nextProgress).catch((err) => {
+            console.error('[INTERACTIONS] unlock notify failed:', err);
+        });
 
         res.json({ success: true, id: result.upsertedId, version: result.version });
     } catch (err) {

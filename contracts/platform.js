@@ -257,6 +257,10 @@ const markNotificationsBodySchema = z.object({
     message: 'Provide ids or all: true',
 });
 
+const pushTokenBodySchema = z.object({
+    token: z.string().min(20).max(4096),
+});
+
 function zodDetails(error) {
     const items = error.issues || error.errors || [];
     return items.map((err) => ({
@@ -337,6 +341,7 @@ module.exports = {
     updateProfileBodySchema,
     completeOnboardingBodySchema,
     markNotificationsBodySchema,
+    pushTokenBodySchema,
     validateBody,
     validateQuery,
 };

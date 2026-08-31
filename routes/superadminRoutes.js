@@ -17,6 +17,8 @@ router.post('/login', loginLimiter, superadminController.login);
 
 router.use(requireSuperadmin);
 router.get('/me', superadminController.me);
+router.get('/jobs', superadminController.listJobs);
+router.post('/jobs/:id/run', superadminController.runJob);
 router.get('/catalog/meta', catalogController.getMeta);
 router.get('/catalog/targets', catalogController.listTargets);
 router.get('/catalog/missions', catalogController.listMissions);

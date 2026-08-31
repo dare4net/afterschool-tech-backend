@@ -15,6 +15,12 @@ function utcDay(date = new Date()) {
     return date.toISOString().slice(0, 10);
 }
 
+function previousUtcDay(today = utcDay()) {
+    const start = Date.parse(`${today}T00:00:00Z`);
+    if (!Number.isFinite(start)) return null;
+    return new Date(start - 86400000).toISOString().slice(0, 10);
+}
+
 function daysBetween(from, to) {
     const start = Date.parse(`${from}T00:00:00Z`);
     const end = Date.parse(`${to}T00:00:00Z`);
@@ -81,6 +87,7 @@ module.exports = {
     streakMilestoneReward,
     nextStreakMilestone,
     utcDay,
+    previousUtcDay,
     daysBetween,
     nextStreakState,
 };

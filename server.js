@@ -98,6 +98,8 @@ const peopleRoutes = require('./routes/peopleRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 app.use('/api/people', peopleRoutes);
 app.use('/api/notifications', notificationRoutes);
+const pushRoutes = require('./routes/pushRoutes');
+app.use('/api/push', pushRoutes);
 const prideRoutes = require('./routes/prideRoutes');
 app.use('/api/pride', prideRoutes);
 

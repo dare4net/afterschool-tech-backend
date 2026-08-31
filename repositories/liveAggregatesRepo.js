@@ -14,6 +14,10 @@ function denormalizeCounts(counts) {
     return out;
 }
 
+function cloudTotal(counts) {
+    return Object.values(counts || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
 async function polls() {
     return (await getLessonsDb()).collection('polls');
 }
@@ -65,9 +69,11 @@ async function incrementPollVote(lessonId, componentId, optionId) {
         { upsert: true, returnDocument: 'after' }
     );
     const doc = result?.value || result;
+    const totalVotes = doc?.totalVotes || 1;
     return {
         votes: doc?.votes || { [safeOption]: 1 },
-        totalVotes: doc?.totalVotes || 1,
+        totalVotes,
+        previousTotal: Math.max(0, totalVotes - 1),
     };
 }
 
@@ -92,7 +98,13 @@ async function addWordCloudWord(lessonId, componentId, word) {
         { upsert: true, returnDocument: 'after' }
     );
     const doc = result?.value || result;
-    return { counts: denormalizeCounts(doc?.counts || { [key]: 1 }) };
+    const counts = denormalizeCounts(doc?.counts || { [key]: 1 });
+    const total = cloudTotal(counts);
+    return {
+        counts,
+        total,
+        previousTotal: Math.max(0, total - 1),
+    };
 }
 
 async function getScale(lessonId, componentId) {
@@ -106,6 +118,8 @@ async function setScaleRating(lessonId, componentId, userId, value) {
     if (!safeUser || !Number.isFinite(numeric)) {
         return { error: 'Invalid rating', status: 400 };
     }
+    const existing = await (await scales()).findOne({ lessonId, componentId });
+    const hadUser = Boolean(existing && existing.ratings && existing.ratings[safeUser] != null);
     const result = await (await scales()).findOneAndUpdate(
         { lessonId, componentId },
         {
@@ -114,7 +128,11 @@ async function setScaleRating(lessonId, componentId, userId, value) {
         },
         { upsert: true, returnDocument: 'after' }
     );
-    return scaleSnapshot(result?.value || result);
+    const snapshot = scaleSnapshot(result?.value || result);
+    return {
+        ...snapshot,
+        previousTotal: hadUser ? snapshot.total : Math.max(0, snapshot.total - 1),
+    };
 }
 
 module.exports = {
@@ -124,6 +142,7 @@ module.exports = {
     getWordCloud,
     addWordCloudWord,
     denormalizeCounts,
+    cloudTotal,
     getScale,
     setScaleRating,
     scaleSnapshot,

@@ -117,6 +117,34 @@ async function updateRegistrationProgress(userId, programId, fields) {
     );
 }
 
+async function listUnfinishedRegistrations({ before, cap = 1500 } = {}) {
+    const filter = {
+        status: { $ne: 'unenrolled' },
+        'progress.percent_complete': { $gt: 0, $lt: 100 },
+    };
+    if (before) {
+        filter.$or = [
+            { last_activity: { $lt: before } },
+            { last_activity: { $exists: false } },
+            { last_activity: null },
+        ];
+    }
+    return (await main()).collection(REGISTRATIONS)
+        .find(filter)
+        .project({ user_id: 1, program_id: 1, last_activity: 1, progress: 1, status: 1 })
+        .limit(Math.max(1, Number(cap) || 1500))
+        .toArray();
+}
+
+async function findProgramsByIds(programIds) {
+    const ids = uniqueIds(programIds);
+    if (!ids.length) return [];
+    return (await main()).collection(PROGRAMS)
+        .find({ _id: { $in: ids } })
+        .project({ _id: 1, name: 1, program_name: 1, title: 1 })
+        .toArray();
+}
+
 module.exports = {
     PROGRAMS,
     MODULES,
@@ -132,4 +160,6 @@ module.exports = {
     listEnrolledUserIds,
     listCompletedLessonIds,
     updateRegistrationProgress,
+    listUnfinishedRegistrations,
+    findProgramsByIds,
 };

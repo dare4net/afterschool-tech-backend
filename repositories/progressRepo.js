@@ -1,4 +1,5 @@
 const { getMainDb } = require('../config/database');
+const { previousUtcDay } = require('../helpers/loginStreak');
 
 const COLLECTION = 'student_progress';
 
@@ -60,10 +61,24 @@ async function update(userId, update) {
     return result.value || result;
 }
 
+async function listStreakAtRisk(today, cap = 500) {
+    const yesterday = previousUtcDay(today);
+    if (!yesterday) return [];
+    return (await col())
+        .find({
+            loginStreak: { $gte: 1 },
+            lastLoginDate: yesterday,
+        })
+        .project({ user_id: 1, loginStreak: 1, lastLoginDate: 1 })
+        .limit(Math.max(1, Number(cap) || 500))
+        .toArray();
+}
+
 module.exports = {
     COLLECTION,
     EMPTY_PROGRESS,
     findByUserId,
     getOrCreate,
     update,
+    listStreakAtRisk,
 };

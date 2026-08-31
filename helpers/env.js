@@ -19,6 +19,8 @@ const backendEnvSchema = z.object({
     SENTRY_DSN: z.preprocess(emptyToUndefined, z.string().url().optional()),
     APPLE_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
     GOOGLE_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    FIREBASE_SERVICE_ACCOUNT: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    PUBLIC_APP_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
 });
 
 function formatZodError(error) {

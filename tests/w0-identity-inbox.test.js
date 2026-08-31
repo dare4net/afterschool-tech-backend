@@ -169,6 +169,11 @@ describe('W0 notifications inbox', () => {
             'PROGRAM_LESSON_PUBLISHED',
             'PROGRAM_MODULE_PUBLISHED',
             'TUTOR_MARKED',
+            'NEXT_LESSON_UNLOCKED',
+            'CLASS_POLL_LIVE',
+            'CLASS_CLOUD_LIVE',
+            'CLASS_SCALE_LIVE',
+            'CLASS_ACTIVITY',
         ]);
     });
 

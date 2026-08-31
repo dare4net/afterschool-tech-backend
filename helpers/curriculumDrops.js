@@ -230,6 +230,8 @@ module.exports = {
     FANOUT_CAP,
     isLive,
     becameLive,
+    programHref,
+    programName,
     createCurriculumDrops,
     ...defaults,
 };

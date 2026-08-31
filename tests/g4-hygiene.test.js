@@ -13,6 +13,7 @@ describe('G4 hygiene', () => {
         const example = read('.env.example');
         assert.match(example, /MONGODB_URI=/);
         assert.match(example, /JWT_SECRET=/);
+        assert.match(example, /FIREBASE_SERVICE_ACCOUNT=/);
         assert.match(read('README.md'), /IMPLEMENTATION_ORDER.md/);
         assert.match(read('server.js'), /validateBackendEnv\(process\.env\)/);
         assert.match(read('package.json'), /tests\/g4-hygiene\.test\.js/);

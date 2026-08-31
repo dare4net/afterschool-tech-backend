@@ -18,7 +18,7 @@ const {
     REFERENCE_ON_DEMAND_COST,
     LESSON_EARLY_UNLOCK_COST,
 } = require('./starMarket');
-const { fetchLessonLock } = require('./lessonUnlock');
+const { fetchLessonLock, notifyIfStarUnlocked } = require('./lessonUnlock');
 
 function createStarStore({
     walletRepo = defaultWalletRepo,
@@ -264,6 +264,7 @@ function createStarStore({
             $addToSet: { earlyUnlockLessonIds: publicId },
             $set: { updated_at: new Date() },
         });
+        notifyIfStarUnlocked(userId, publicId, false).catch(() => {});
         return {
             ...paid,
             lessonId: publicId,

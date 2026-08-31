@@ -32,6 +32,9 @@ describe('sequential lesson unlock', () => {
         assert.equal(skipped[1].locked, false);
         assert.match(read('routes/storeRoutes.js'), /unlock-lesson/);
         assert.match(read('helpers/starStore.js'), /unlockLesson/);
+        assert.match(read('helpers/starStore.js'), /notifyIfStarUnlocked/);
         assert.match(read('controllers/lessonController.js'), /applySequentialUnlock/);
+        assert.match(read('helpers/lessonUnlock.js'), /notifyIfProgressUnlockedNext/);
+        assert.match(read('helpers/lessonUnlock.js'), /NEXT_LESSON_UNLOCKED/);
     });
 });

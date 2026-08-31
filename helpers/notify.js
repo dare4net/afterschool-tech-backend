@@ -1,16 +1,9 @@
 const notificationsRepo = require('../repositories/notificationsRepo');
+const { inboxTypes, isPushServer } = require('./notificationCatalog');
+const { dispatchPush } = require('./pushDispatch');
 const { log } = require('./logger');
 
-const NOTIFICATION_TYPES = [
-    'ACHIEVEMENT_EARNED',
-    'MISSION_CLAIMED',
-    'LEVEL_UP',
-    'FOLLOWED_YOU',
-    'CROWN_GOLD',
-    'PROGRAM_LESSON_PUBLISHED',
-    'PROGRAM_MODULE_PUBLISHED',
-    'TUTOR_MARKED',
-];
+const NOTIFICATION_TYPES = inboxTypes();
 
 async function notify(input) {
     try {
@@ -20,7 +13,7 @@ async function notify(input) {
             return null;
         }
         await notificationsRepo.ensureIndexes();
-        return await notificationsRepo.insert({
+        const row = await notificationsRepo.insert({
             user_id: input.userId,
             type: input.type,
             actor_id: input.actorId || null,
@@ -29,6 +22,18 @@ async function notify(input) {
             href: input.href || null,
             payload: input.payload || {},
         });
+        if (isPushServer(input.type)) {
+            dispatchPush({
+                userId: input.userId,
+                type: input.type,
+                title: input.title,
+                body: input.body || '',
+                href: input.href || null,
+            }).catch((err) => {
+                log('warn', 'notify_push_failed', { msg: err.message, type: input.type });
+            });
+        }
+        return row;
     } catch (err) {
         log('warn', 'notify_failed', { msg: err.message, type: input && input.type });
         return null;

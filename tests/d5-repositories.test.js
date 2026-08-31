@@ -13,6 +13,7 @@ const controllers = [
     'controllers/storeController.js',
     'controllers/onboardingController.js',
     'controllers/liveAggregatesController.js',
+    'controllers/pushController.js',
 ];
 
 describe('D5 wallet/stats/mission repositories', () => {
@@ -35,6 +36,8 @@ describe('D5 wallet/stats/mission repositories', () => {
         const follows = readFileSync(join(__dirname, '../repositories/followsRepo.js'), 'utf8');
         const curriculum = readFileSync(join(__dirname, '../repositories/curriculumRepo.js'), 'utf8');
         const inventory = readFileSync(join(__dirname, '../repositories/inventoryRepo.js'), 'utf8');
+        const jobs = readFileSync(join(__dirname, '../repositories/jobsRepo.js'), 'utf8');
+        const dedupe = readFileSync(join(__dirname, '../repositories/notifyDedupeRepo.js'), 'utf8');
         assert.match(wallet, /student_wallets/);
         assert.match(stats, /lesson_completions/);
         assert.match(progress, /student_progress/);
@@ -42,6 +45,7 @@ describe('D5 wallet/stats/mission repositories', () => {
         assert.match(catalog, /platform_achievements/);
         assert.match(notifications, /notifications/);
         assert.match(users, /handle: 1/);
+        assert.match(users, /fcmTokens/);
         assert.match(pride, /student_public_stats/);
         assert.match(pride, /stats_ranks/);
         assert.match(follows, /follows/);
@@ -49,5 +53,8 @@ describe('D5 wallet/stats/mission repositories', () => {
         assert.match(curriculum, /program_registrations/);
         assert.match(curriculum, /lesson_completions/);
         assert.match(inventory, /student_inventory/);
+        assert.match(jobs, /job_runs/);
+        assert.match(jobs, /reminder_sends/);
+        assert.match(dedupe, /notify_claims/);
     });
 });

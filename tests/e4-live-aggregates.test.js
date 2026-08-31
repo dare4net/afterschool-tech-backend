@@ -36,6 +36,9 @@ describe('E4 live aggregates', () => {
         const source = readFileSync(join(__dirname, '../controllers/liveAggregatesController.js'), 'utf8');
         assert.equal(source.includes('db.collection'), false);
         assert.match(source, /liveAggregatesRepo/);
+        assert.match(source, /onPollVote/);
+        assert.match(source, /onCloudWord/);
+        assert.match(source, /onScaleRating/);
         assert.equal(existsSync(join(__dirname, '../repositories/liveAggregatesRepo.js')), true);
     });
 });

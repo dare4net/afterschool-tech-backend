@@ -34,4 +34,10 @@ describe('E1 Express interactions API', () => {
         assert.match(routes, /router\.get\('\/'/);
         assert.match(routes, /router\.post\('\/'/);
     });
+
+    it('notifies when a save crosses the 50% unlock gate', () => {
+        const source = readFileSync(join(__dirname, '../controllers/interactionController.js'), 'utf8');
+        assert.match(source, /notifyIfProgressUnlockedNext/);
+        assert.match(source, /previousProgress/);
+    });
 });

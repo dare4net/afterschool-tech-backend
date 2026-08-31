@@ -89,6 +89,51 @@ async function updateIdentity(userId, patch) {
     return result.value || result;
 }
 
+const FCM_TOKEN_CAP = 8;
+
+async function listFcmTokens(userId) {
+    if (!userId) return [];
+    const user = await (await col()).findOne(
+        { user_id: userId },
+        { projection: { fcmTokens: 1 } }
+    );
+    return [...new Set((user?.fcmTokens || []).map(String).filter(Boolean))];
+}
+
+async function addFcmToken(userId, token) {
+    const value = String(token || '').trim();
+    if (!userId || !value) return [];
+    await (await col()).updateOne(
+        { user_id: userId },
+        {
+            $addToSet: { fcmTokens: value },
+            $set: { updated_at: new Date() },
+        }
+    );
+    let tokens = await listFcmTokens(userId);
+    if (tokens.length > FCM_TOKEN_CAP) {
+        tokens = tokens.slice(-FCM_TOKEN_CAP);
+        await (await col()).updateOne(
+            { user_id: userId },
+            { $set: { fcmTokens: tokens, updated_at: new Date() } }
+        );
+    }
+    return tokens;
+}
+
+async function removeFcmToken(userId, token) {
+    const value = String(token || '').trim();
+    if (!userId || !value) return [];
+    await (await col()).updateOne(
+        { user_id: userId },
+        {
+            $pull: { fcmTokens: value },
+            $set: { updated_at: new Date() },
+        }
+    );
+    return listFcmTokens(userId);
+}
+
 module.exports = {
     COLLECTION,
     ensureIndexes,
@@ -98,4 +143,8 @@ module.exports = {
     searchPublic,
     handleTakenByOther,
     updateIdentity,
+    listFcmTokens,
+    addFcmToken,
+    removeFcmToken,
+    FCM_TOKEN_CAP,
 };
