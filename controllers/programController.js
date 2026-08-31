@@ -137,6 +137,186 @@ exports.registerForProgram = async (req, res) => {
   }
 };
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function programTitle(program) {
+  return (program && (program.program_name || program.name || program.title)) || 'Course';
+}
+
+function moduleTitle(mod) {
+  return (mod && (mod.title || mod.name || mod.module_name || mod.moduleTitle)) || 'Module';
+}
+
+function lessonTitle(lesson) {
+  return (lesson && (lesson.title || lesson.name || lesson.lesson_title)) || 'Lesson';
+}
+
+exports.searchCurriculum = async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().slice(0, 60);
+    if (q.length < 2) {
+      return res.json({ success: true, programs: [], modules: [], lessons: [] });
+    }
+
+    const db = await getMainDb();
+    const regex = new RegExp(escapeRegex(q), 'i');
+    const published = { is_deleted: { $ne: true }, is_published: { $ne: false } };
+
+    const programs = await db.collection('programs')
+      .find({
+        ...published,
+        $or: [
+          { program_name: regex },
+          { name: regex },
+          { title: regex },
+        ],
+      })
+      .project({ program_name: 1, name: 1, title: 1 })
+      .limit(8)
+      .toArray();
+
+    const modules = await db.collection('modules')
+      .find({
+        ...published,
+        $or: [
+          { title: regex },
+          { name: regex },
+          { module_name: regex },
+          { moduleTitle: regex },
+        ],
+      })
+      .project({ title: 1, name: 1, module_name: 1, moduleTitle: 1, program_id: 1 })
+      .limit(8)
+      .toArray();
+
+    const lessons = await db.collection('lessons')
+      .find({
+        ...published,
+        $or: [
+          { title: regex },
+          { name: regex },
+          { lesson_title: regex },
+        ],
+      })
+      .project({ title: 1, name: 1, lesson_title: 1, module_id: 1, lesson_data: 1 })
+      .limit(8)
+      .toArray();
+
+    const programById = new Map(programs.map((row) => [String(row._id), row]));
+    const neededProgramIds = new Set();
+    const neededModuleIds = new Set();
+
+    for (const mod of modules) {
+      if (mod.program_id) neededProgramIds.add(String(mod.program_id));
+      else neededProgramIds.add(`module:${mod._id}`);
+    }
+    for (const lesson of lessons) {
+      if (lesson.module_id) neededModuleIds.add(String(lesson.module_id));
+    }
+
+    const orphanModuleIds = modules.filter((mod) => !mod.program_id).map((mod) => mod._id);
+    if (orphanModuleIds.length) {
+      const parents = await db.collection('programs')
+        .find({ modules: { $in: orphanModuleIds }, ...published })
+        .project({ program_name: 1, name: 1, title: 1, modules: 1 })
+        .toArray();
+      for (const parent of parents) {
+        programById.set(String(parent._id), parent);
+        for (const mid of parent.modules || []) {
+          const key = String(mid);
+          if (!programById.has(`module-parent:${key}`)) {
+            programById.set(`module-parent:${key}`, parent);
+          }
+        }
+      }
+    }
+
+    const missingProgramIds = [...neededProgramIds]
+      .filter((id) => !id.startsWith('module:') && !programById.has(id))
+      .map((id) => toObjectId(id))
+      .filter(Boolean);
+    if (missingProgramIds.length) {
+      const extra = await db.collection('programs')
+        .find({ _id: { $in: missingProgramIds }, ...published })
+        .project({ program_name: 1, name: 1, title: 1 })
+        .toArray();
+      extra.forEach((row) => programById.set(String(row._id), row));
+    }
+
+    const moduleById = new Map(modules.map((row) => [String(row._id), row]));
+    const missingModuleIds = [...neededModuleIds]
+      .filter((id) => !moduleById.has(id))
+      .map((id) => toObjectId(id))
+      .filter(Boolean);
+    if (missingModuleIds.length) {
+      const extraMods = await db.collection('modules')
+        .find({ _id: { $in: missingModuleIds }, ...published })
+        .project({ title: 1, name: 1, module_name: 1, moduleTitle: 1, program_id: 1 })
+        .toArray();
+      extraMods.forEach((row) => moduleById.set(String(row._id), row));
+      const extraProgramIds = extraMods
+        .map((row) => row.program_id)
+        .filter((id) => id && !programById.has(String(id)))
+        .map((id) => toObjectId(id))
+        .filter(Boolean);
+      if (extraProgramIds.length) {
+        const extraPrograms = await db.collection('programs')
+          .find({ _id: { $in: extraProgramIds }, ...published })
+          .project({ program_name: 1, name: 1, title: 1 })
+          .toArray();
+        extraPrograms.forEach((row) => programById.set(String(row._id), row));
+      }
+    }
+
+    const resolveProgramForModule = (mod) => {
+      if (!mod) return null;
+      if (mod.program_id && programById.has(String(mod.program_id))) {
+        return programById.get(String(mod.program_id));
+      }
+      return programById.get(`module-parent:${mod._id}`) || null;
+    };
+
+    res.json({
+      success: true,
+      programs: programs.map((program) => ({
+        id: String(program._id),
+        title: programTitle(program),
+        href: `/dashboard/student/programs/${program._id}`,
+      })),
+      modules: modules.map((mod) => {
+        const program = resolveProgramForModule(mod);
+        const programId = program ? String(program._id) : (mod.program_id ? String(mod.program_id) : null);
+        if (!programId) return null;
+        return {
+          id: String(mod._id),
+          title: moduleTitle(mod),
+          programTitle: program ? programTitle(program) : 'Course',
+          href: `/dashboard/student/programs/${programId}/modules/${mod._id}`,
+        };
+      }).filter(Boolean),
+      lessons: lessons.map((lesson) => {
+        const mod = lesson.module_id ? moduleById.get(String(lesson.module_id)) : null;
+        const program = resolveProgramForModule(mod);
+        const programId = program ? String(program._id) : (mod && mod.program_id ? String(mod.program_id) : null);
+        const moduleId = lesson.module_id ? String(lesson.module_id) : null;
+        if (!programId || !moduleId) return null;
+        return {
+          id: String(lesson._id),
+          title: lessonTitle(lesson),
+          moduleTitle: mod ? moduleTitle(mod) : 'Module',
+          programTitle: program ? programTitle(program) : 'Course',
+          href: `/dashboard/student/programs/${programId}/modules/${moduleId}`,
+        };
+      }).filter(Boolean),
+    });
+  } catch (error) {
+    console.error('MongoDB Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // List all programs (with optional filters)
 exports.listPrograms = async (req, res) => {
   try {

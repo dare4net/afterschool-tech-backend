@@ -5,6 +5,7 @@ const { authorize, authorizeRole } = require('../middleware/authorize');
 
 // Public routes
 router.get('/', programController.listPrograms);
+router.get('/search', authorize, programController.searchCurriculum);
 router.get('/:programId', programController.getProgramDetails);
 
 // Student routes

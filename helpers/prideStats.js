@@ -71,7 +71,6 @@ function createPrideStats({
 
     async function syncFromProgressEvent(userId, eventType, payload = {}, progressAfter = {}) {
         try {
-            await prideRepo.ensureIndexes();
             const user = await usersRepo.findByUserId(userId);
             const listed = isListed(user);
             const ops = [];
@@ -191,7 +190,6 @@ function createPrideStats({
 
     async function setListed(userId, listed) {
         try {
-            await prideRepo.ensureIndexes();
             await prideRepo.setListed(userId, listed === true);
             await refreshBestCrown(userId);
         } catch (err) {
@@ -304,19 +302,38 @@ function createPrideStats({
         return { stat: spec, board, you };
     }
 
+    async function mapPool(items, concurrency, mapper) {
+        const out = new Array(items.length);
+        let next = 0;
+        const workers = Array.from(
+            { length: Math.min(concurrency, items.length) || 1 },
+            async () => {
+                while (next < items.length) {
+                    const index = next;
+                    next += 1;
+                    out[index] = await mapper(items[index], index);
+                }
+            }
+        );
+        await Promise.all(workers);
+        return out;
+    }
+
     async function summaryFor(userId) {
-        const stats = [];
-        for (const spec of PRIDE_CATALOG) {
-            const leadersRaw = await prideRepo.listBoard(spec.key, spec, 3);
+        const stats = await mapPool(PRIDE_CATALOG, 8, async (spec) => {
+            const leaderLimit = spec.group === 'featured' ? 3 : 1;
+            const [leadersRaw, you] = await Promise.all([
+                prideRepo.listBoard(spec.key, spec, leaderLimit),
+                userId ? rankFor(spec.key, userId) : Promise.resolve(null),
+            ]);
             const leaders = await hydrateRows(leadersRaw, { viewerId: userId });
-            const you = userId ? await rankFor(spec.key, userId) : null;
-            stats.push({
+            return {
                 ...spec,
                 featured: spec.group === 'featured',
                 you,
                 leaders,
-            });
-        }
+            };
+        });
         return { catalog: PRIDE_CATALOG, stats };
     }
 
@@ -468,14 +485,10 @@ function createPrideStats({
     }
 
     async function discover(query, { hideUserIds = [], viewerId } = {}) {
-        await prideRepo.ensureIndexes();
         const hidden = new Set((hideUserIds || []).map(String).filter(Boolean));
         const q = String(query || '').trim().slice(0, 40).toLowerCase();
         const specs = PRIDE_CATALOG.filter((spec) => boardMatchesQuery(spec, q)).slice(0, 8);
-        const golds = [];
-        for (const spec of specs) {
-            golds.push(await goldForStat(spec, { viewerId }));
-        }
+        const golds = await Promise.all(specs.map((spec) => goldForStat(spec, { viewerId })));
         const boards = specs.map((spec, index) => ({
             key: spec.key,
             label: spec.label,
@@ -509,7 +522,6 @@ function createPrideStats({
 
     async function importCounts(userId, counts, { at } = {}) {
         try {
-            await prideRepo.ensureIndexes();
             const user = await usersRepo.findByUserId(userId);
             const listed = isListed(user);
             const existing = await prideRepo.getStats(userId);

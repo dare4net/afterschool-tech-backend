@@ -39,6 +39,18 @@ exports.awardStars = async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
+        if (componentId && typeof walletRepo.hasAwardedComponent === 'function') {
+            const already = await walletRepo.hasAwardedComponent(userId, componentId);
+            if (already) {
+                const wallet = await walletRepo.getOrCreate(userId);
+                return res.json({
+                    success: true,
+                    starBalance: wallet.starBalance || 0,
+                    alreadyAwarded: true,
+                });
+            }
+        }
+
         let awarded = amount;
         const reasonText = String(reason || '');
         if (/timeout/i.test(reasonText)) {
@@ -53,6 +65,7 @@ exports.awardStars = async (req, res) => {
             inc: awarded,
             transaction,
             upsert: true,
+            awardedComponentId: componentId || undefined,
         });
         const progressAfter = await recordProgressEvent(userId, 'STARS_AWARDED', { amount: awarded });
         await prideStats.syncFromProgressEvent(userId, 'STARS_AWARDED', { amount: awarded }, progressAfter);

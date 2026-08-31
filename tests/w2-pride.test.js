@@ -338,4 +338,16 @@ describe('W2 pride wiring and public JSON', () => {
         assert.equal(publicProfileFields({ email: 'hidden@school.edu', handle: 'maya' }).email, undefined);
         assert.match(listenerHint, /completionTimeMs: payload.completionTimeMs/);
     });
+
+    it('loads pride summary in parallel and indexes ranks for sort plus user lookup', () => {
+        const stats = read('helpers/prideStats.js');
+        const repo = read('repositories/prideRepo.js');
+        const server = read('server.js');
+        assert.match(stats, /mapPool/);
+        assert.match(stats, /Promise\.all/);
+        assert.equal(stats.includes('await prideRepo.ensureIndexes()'), false);
+        assert.match(repo, /user_id: 1 \}/);
+        assert.match(repo, /value: -1, updated_at: 1, user_id: 1/);
+        assert.match(server, /prideRepo.*ensureIndexes/);
+    });
 });

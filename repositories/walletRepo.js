@@ -49,17 +49,32 @@ function spendTransaction(amount, itemType) {
     };
 }
 
-async function applyBalanceChange(userId, { inc, transaction, upsert = false }) {
+async function applyBalanceChange(userId, { inc, transaction, upsert = false, awardedComponentId }) {
+    const update = {
+        $inc: { starBalance: inc },
+        $push: { transactions: transaction },
+        $set: { updated_at: new Date() },
+    };
+    if (awardedComponentId) {
+        update.$addToSet = { awarded_components: awardedComponentId };
+    }
     const result = await (await wallets()).findOneAndUpdate(
         { user_id: userId },
-        {
-            $inc: { starBalance: inc },
-            $push: { transactions: transaction },
-            $set: { updated_at: new Date() },
-        },
+        update,
         { upsert, returnDocument: 'after' }
     );
     return result.value || result;
+}
+
+async function hasAwardedComponent(userId, componentId) {
+    if (!componentId) return false;
+    const wallet = await findByUserId(userId);
+    if (!wallet) return false;
+    const awarded = Array.isArray(wallet.awarded_components) ? wallet.awarded_components : [];
+    if (awarded.includes(componentId)) return true;
+    return (wallet.transactions || []).some(
+        (row) => row && row.type === 'earn' && row.componentId === componentId
+    );
 }
 
 module.exports = {
@@ -68,4 +83,5 @@ module.exports = {
     earnTransaction,
     spendTransaction,
     applyBalanceChange,
+    hasAwardedComponent,
 };

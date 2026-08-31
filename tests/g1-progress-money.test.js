@@ -1,6 +1,10 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('path');
 const { ObjectId } = require('mongodb');
+
+const read = (relative) => readFileSync(join(__dirname, '..', relative), 'utf8');
 const { EMPTY_PROGRESS } = require('../repositories/progressRepo');
 const { createStudentProgress } = require('../helpers/studentProgress');
 const { countForMission } = require('../helpers/platformMissions');
@@ -203,6 +207,9 @@ describe('G1 money-path contracts', () => {
         );
         assert.equal(awardStarsBodySchema.safeParse({ amount: 0 }).success, false);
         assert.equal(claimMissionBodySchema.safeParse({ missionId: 'Bonus Stars' }).success, false);
+        assert.match(read('controllers/walletController.js'), /alreadyAwarded/);
+        assert.match(read('controllers/walletController.js'), /hasAwardedComponent/);
+        assert.match(read('repositories/walletRepo.js'), /awarded_components/);
     });
 });
 

@@ -4,6 +4,7 @@ const { accessCheck } = require('../utils/accessChecker');
 const { resolveLessonViewerUserId } = require('../helpers/actorUser');
 const { resolveLessonRef } = require('../helpers/lessonRef');
 const curriculumDrops = require('../helpers/curriculumDrops');
+const { summarizeLessonHunt } = require('../helpers/lessonHunt');
 
 // Redis disabled
 const redis = null;
@@ -406,7 +407,6 @@ exports.getModuleLessons = async (req, res) => {
       };
 
       const componentTypesSet = new Set();
-      let calculatedTotalScore = 0;
 
       slides.forEach(slide => {
         (slide.components || []).forEach(comp => {
@@ -416,37 +416,16 @@ exports.getModuleLessons = async (req, res) => {
             if (categoryCounts[cat] !== undefined) {
               categoryCounts[cat]++;
             }
-
-            // Calculate max points matching ScoringService logic
-            const props = comp.props || {};
-            const points = props.points || 0;
-            const mode = props.mode || comp.mode || 'practice';
-
-            if (points > 0) {
-              switch (comp.type) {
-                case 'fillInTheBlank':
-                  const blankCount = props.blanks?.length || (props.text?.match(/\[blank\]/g) || []).length || 1;
-                  calculatedTotalScore += points * blankCount;
-                  break;
-                case 'matchingPairs':
-                  calculatedTotalScore += points * (props.pairs?.length || 1);
-                  break;
-                case 'quiz':
-                  calculatedTotalScore += points * (props.questions?.length || 1);
-                  break;
-                default:
-                  calculatedTotalScore += points;
-                  break;
-              }
-            }
           }
         });
       });
 
+      const hunt = summarizeLessonHunt(slides);
+
       // Total score prioritizing interaction recorded totalScore, falling back to calculated total
       const totalScore = (interaction?.lessonState?.totalScore && interaction.lessonState.totalScore > 0)
         ? interaction.lessonState.totalScore
-        : calculatedTotalScore;
+        : hunt.totalPoints;
 
       return {
         ...lesson,
@@ -460,7 +439,12 @@ exports.getModuleLessons = async (req, res) => {
         interactiveCount: categoryCounts.interactive + categoryCounts.gamified,
         categoryCounts,
         duration: lesson.duration || astDoc?.duration || 10,
-        componentTypes: Array.from(componentTypesSet)
+        componentTypes: Array.from(componentTypesSet),
+        activities: hunt.activities,
+        obtainablePoints: hunt.totalPoints,
+        livePoints: hunt.livePoints,
+        practicePoints: hunt.practicePoints,
+        obtainableStars: hunt.maxStars,
       };
     });
 

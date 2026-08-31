@@ -17,7 +17,9 @@ async function ensureIndexes() {
     const ranks = await ranksCol();
     await stats.createIndex({ user_id: 1 }, { unique: true });
     await ranks.createIndex({ stat_key: 1, user_id: 1 }, { unique: true });
-    await ranks.createIndex({ stat_key: 1, listed: 1, value: 1, updated_at: 1 });
+    await ranks.createIndex({ user_id: 1 });
+    await ranks.createIndex({ stat_key: 1, listed: 1, value: -1, updated_at: 1, user_id: 1 });
+    await ranks.createIndex({ stat_key: 1, listed: 1, value: 1, updated_at: 1, user_id: 1 });
 }
 
 async function getStats(userId) {

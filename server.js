@@ -1,6 +1,8 @@
 // server.js
 const express = require('express');
 require('dotenv').config();
+const { validateBackendEnv } = require('./helpers/env');
+validateBackendEnv(process.env);
 const cors = require('cors');
 const helmet = require('helmet');
 const { connectDB } = require('./config/database');
@@ -103,7 +105,12 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Connect to MongoDB then start the server
-connectDB().then(() => {
+connectDB().then(async () => {
+  try {
+    await require('./repositories/prideRepo').ensureIndexes();
+  } catch (err) {
+    log('warn', 'pride_indexes_failed', { msg: err.message });
+  }
   app.listen(PORT, () => {
     log('info', 'listen', { port: Number(PORT) });
   });
