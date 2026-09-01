@@ -1,6 +1,7 @@
 const { ObjectId } = require('mongodb');
 const { getMainDb, client } = require('../config/database');
 const curriculumDrops = require('../helpers/curriculumDrops');
+const { marketplaceCatalogFilter } = require('../helpers/programVisibility');
 
 // Helper function to convert string IDs to ObjectId
 const toObjectId = (id) => {
@@ -325,14 +326,18 @@ exports.listPrograms = async (req, res) => {
 
     let query = {
       is_deleted: { $ne: true },
-      is_published: { $ne: false }
+      is_published: { $ne: false },
+      $and: [marketplaceCatalogFilter()],
     };
 
     if (search) {
-      query.$or = [
-        { program_name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
+      query.$and.push({
+        $or: [
+          { program_name: { $regex: search, $options: 'i' } },
+          { name: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+        ],
+      });
     }
 
     const sortOptions = {};
@@ -350,41 +355,61 @@ exports.listPrograms = async (req, res) => {
   }
 };
 
-// Get student's registered programs
+// Get student's registered programs (optional ?org_id= club scope, or org_id=personal)
 exports.getMyPrograms = async (req, res) => {
   try {
     const db = await getMainDb();
     const userId = req.user.user_id;
+    const rawOrgId = req.query.org_id ? String(req.query.org_id).trim() : '';
 
-    // Get user with their programs array
-    const user = await db.collection('users').findOne(
-      { user_id: userId },
-      { projection: { programs: 1 } }
-    );
+    // Prefer registrations as source of truth (supports org_id / cohort attribution)
+    let regQuery = {
+      user_id: userId,
+      status: { $ne: 'unenrolled' },
+    };
+    if (rawOrgId === 'personal') {
+      regQuery.$or = [{ org_id: null }, { org_id: { $exists: false } }];
+    } else if (rawOrgId) {
+      const oid = toObjectId(rawOrgId);
+      regQuery.org_id = oid ? { $in: [oid, rawOrgId, String(oid)] } : rawOrgId;
+    }
 
-    if (!user || !user.programs || user.programs.length === 0) {
+    const registrations = await db.collection('program_registrations')
+      .find(regQuery)
+      .toArray();
+
+    let programIds = registrations
+      .map((reg) => reg.program_id)
+      .filter(Boolean);
+
+    // Legacy fallback: users.programs when no scoped filter and no regs yet
+    if (!programIds.length && !rawOrgId) {
+      const user = await db.collection('users').findOne(
+        { user_id: userId },
+        { projection: { programs: 1 } }
+      );
+      if (!user || !user.programs || user.programs.length === 0) {
+        return res.json([]);
+      }
+      programIds = user.programs;
+    }
+
+    if (!programIds.length) {
       return res.json([]);
     }
 
-    // Get full program details including registration info
     const programs = await db.collection('programs')
-      .find({ _id: { $in: user.programs } })
+      .find({ _id: { $in: programIds } })
       .toArray();
 
-    // Get registration details for these programs
-    const registrations = await db.collection('program_registrations')
-      .find({
-        user_id: userId,
-        program_id: { $in: user.programs }
-      })
-      .toArray();
-
-    // Combine program data with registration details
     const myPrograms = [];
     for (const program of programs) {
       const registration = registrations.find(reg =>
-        reg.program_id.toString() === program._id.toString()
-      );
+        reg.program_id && reg.program_id.toString() === program._id.toString()
+      ) || await db.collection('program_registrations').findOne({
+        user_id: userId,
+        program_id: program._id,
+      });
       const stored = registration?.progress || {
         completed_modules: [],
         completed_milestones: [],
@@ -393,13 +418,14 @@ exports.getMyPrograms = async (req, res) => {
       const live = await curriculumDrops.progressForUser(userId, program._id);
       myPrograms.push({
         ...program,
+        org_id: registration?.org_id || program.org_id || null,
+        cohort_id: registration?.cohort_id || null,
         registration_date: registration?.registered_at || null,
         progress: live ? { ...stored, ...live } : stored,
         status: registration?.status || 'active'
       });
     }
 
-    // Sort by registration date, newest first
     myPrograms.sort((a, b) =>
       (b.registration_date || 0) - (a.registration_date || 0)
     );

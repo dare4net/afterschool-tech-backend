@@ -2,20 +2,20 @@ const express = require('express');
 const router = express.Router();
 const authenticate = require('../middleware/authenticate');
 const studioController = require('../controllers/studioController');
+const { isStudioRole } = require('../helpers/studioAccess');
 const { validate, createProgramSchema, updateProgramSchema, createModuleSchema, updateModuleSchema, createLessonSchema, updateLessonSchema } = require('../validators/studioValidators');
 
-// Middleware to require tutor role
-const requireTutor = (req, res, next) => {
-    if (req.user && req.user.role === 'tutor') {
+const requireStudioAccess = (req, res, next) => {
+    if (req.user && isStudioRole(req.user.role)) {
         next();
     } else {
-        res.status(403).json({ error: 'Access denied. Tutor role required.' });
+        res.status(403).json({ error: 'Access denied. Studio access required.' });
     }
 };
 
-// Apply authentication and tutor requirement to all studio routes
+// Apply authentication and studio access to all studio routes
 router.use(authenticate);
-router.use(requireTutor);
+router.use(requireStudioAccess);
 
 // ===========================
 // ANALYTICS & ACTIVITY

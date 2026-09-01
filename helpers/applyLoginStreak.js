@@ -4,6 +4,7 @@ const defaultWalletRepo = require('../repositories/walletRepo');
 const defaultPrideStats = require('./prideStats');
 const { recordProgressEvent: defaultRecordProgress } = require('./studentProgress');
 const { nextStreakState, streakMilestoneReward, nextStreakMilestone, utcDay } = require('./loginStreak');
+const { getPendingStreakBonus, streakBonusPayload } = require('./claimStreakBonus');
 
 async function applyLoginStreak(userId, {
     progressRepo = defaultProgressRepo,
@@ -20,12 +21,10 @@ async function applyLoginStreak(userId, {
     const next = nextStreakState(progress, today, freezeRemaining);
 
     if (next.alreadyCounted) {
-        const sameDayBonus = progress.lastLoginDate === today
-            ? (Number(progress.lastStreakBonusStars) || 0)
-            : 0;
+        const bonusPayload = streakBonusPayload(progress);
         return {
             ...next,
-            streakBonusStars: sameDayBonus,
+            ...bonusPayload,
             freezeRemaining,
             nextMilestone: nextStreakMilestone(next.loginStreak),
             nextMilestoneReward: streakMilestoneReward(nextStreakMilestone(next.loginStreak)),
@@ -45,39 +44,38 @@ async function applyLoginStreak(userId, {
     let bonus = 0;
     if (next.continued) {
         bonus = streakMilestoneReward(next.loginStreak);
-        if (bonus > 0 && typeof walletRepo.applyBalanceChange === 'function') {
-            const transaction = walletRepo.earnTransaction(bonus, `login_streak:${next.loginStreak}`, 'login-streak');
-            await walletRepo.applyBalanceChange(userId, {
-                inc: bonus,
-                transaction,
-                upsert: true,
-            });
-            if (typeof recordProgressEvent === 'function') {
-                const after = await recordProgressEvent(userId, 'STARS_AWARDED', { amount: bonus });
-                if (prideStats && typeof prideStats.syncFromProgressEvent === 'function') {
-                    await prideStats.syncFromProgressEvent(userId, 'STARS_AWARDED', { amount: bonus }, after);
-                }
-            }
-        }
+    }
+
+    const existingPending = getPendingStreakBonus(progress);
+    const progressUpdate = {
+        loginStreak: next.loginStreak,
+        longestLoginStreak: next.longestLoginStreak,
+        lastLoginDate: next.lastLoginDate,
+        lastStreakBonusStars: bonus,
+        updated_at: new Date(),
+    };
+    if (bonus > 0) {
+        progressUpdate.pendingStreakBonusStars = bonus + existingPending;
+        progressUpdate.pendingStreakBonusMilestone = next.loginStreak;
+        progressUpdate.streakBonusClaimed = false;
     }
 
     await progressRepo.update(userId, {
-        $set: {
-            loginStreak: next.loginStreak,
-            longestLoginStreak: next.longestLoginStreak,
-            lastLoginDate: next.lastLoginDate,
-            lastStreakBonusStars: bonus,
-            updated_at: new Date(),
-        },
+        $set: progressUpdate,
     });
 
     await prideStats.syncFromProgressEvent(userId, 'LOGIN_STREAK', {
         count: next.loginStreak,
     }, { loginStreak: next.loginStreak });
 
+    const bonusPayload = streakBonusPayload({
+        ...progress,
+        ...progressUpdate,
+    });
+
     return {
         ...next,
-        streakBonusStars: bonus,
+        ...bonusPayload,
         freezeRemaining: Math.max(0, freezeRemaining - (next.usedFreeze || 0)),
         nextMilestone: nextStreakMilestone(next.loginStreak),
         nextMilestoneReward: streakMilestoneReward(nextStreakMilestone(next.loginStreak)),

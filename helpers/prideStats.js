@@ -197,26 +197,30 @@ function createPrideStats({
         }
     }
 
-    async function rankFor(statKey, userId) {
+    async function rankFor(statKey, userId, { userIds = null, requireListed = true } = {}) {
         const spec = getPrideStat(statKey);
         if (!spec) return null;
         const row = await prideRepo.getRank(statKey, userId);
-        if (!row || row.listed !== true) {
+        const inScope = !Array.isArray(userIds) || userIds.includes(String(userId));
+        if (!row || !inScope || (requireListed && row.listed !== true)) {
             return {
-                value: row ? row.value : null,
+                value: row && inScope ? row.value : null,
                 rank: null,
                 crown: null,
-                listed: false,
+                listed: Boolean(row && row.listed === true),
                 updatedAt: row ? row.updated_at : null,
             };
         }
-        const better = await prideRepo.countBetter(statKey, spec, row.value, row.updated_at);
+        const better = await prideRepo.countBetter(statKey, spec, row.value, row.updated_at, {
+            userIds,
+            requireListed,
+        });
         const rank = better + 1;
         return {
             value: row.value,
             rank,
             crown: crownForRank(rank),
-            listed: true,
+            listed: row.listed === true || !requireListed,
             updatedAt: row.updated_at,
         };
     }
@@ -256,19 +260,20 @@ function createPrideStats({
         });
     }
 
-    async function boardFor(statKey, { userId, limit = 50 } = {}) {
+    async function boardFor(statKey, { userId, limit = 50, userIds = null, requireListed = true } = {}) {
         const spec = getPrideStat(statKey);
         if (!spec) return { error: 'Unknown stat', status: 404 };
-        const raw = await prideRepo.listBoard(statKey, spec, limit);
+        const scopeOpts = { userIds, requireListed };
+        const raw = await prideRepo.listBoard(statKey, spec, limit, scopeOpts);
         const board = await hydrateRows(raw, { viewerId: userId });
         let you = null;
         if (userId) {
-            you = await rankFor(statKey, userId);
+            you = await rankFor(statKey, userId, scopeOpts);
             if (you) {
                 const mine = board.find((row) => row.userId === userId) || null;
                 let gapToNext = null;
                 if (you.rank && you.rank > 1) {
-                    const aboveRaw = await prideRepo.getAtRank(statKey, spec, you.rank - 1);
+                    const aboveRaw = await prideRepo.getAtRank(statKey, spec, you.rank - 1, scopeOpts);
                     const above = aboveRaw ? (await hydrateRows([aboveRaw], { viewerId: userId }))[0] : null;
                     if (above) {
                         const amount = spec.sort === 'asc'
@@ -319,12 +324,13 @@ function createPrideStats({
         return out;
     }
 
-    async function summaryFor(userId) {
+    async function summaryFor(userId, { userIds = null, requireListed = true } = {}) {
+        const scopeOpts = { userIds, requireListed };
         const stats = await mapPool(PRIDE_CATALOG, 8, async (spec) => {
             const leaderLimit = spec.group === 'featured' ? 3 : 1;
             const [leadersRaw, you] = await Promise.all([
-                prideRepo.listBoard(spec.key, spec, leaderLimit),
-                userId ? rankFor(spec.key, userId) : Promise.resolve(null),
+                prideRepo.listBoard(spec.key, spec, leaderLimit, scopeOpts),
+                userId ? rankFor(spec.key, userId, scopeOpts) : Promise.resolve(null),
             ]);
             const leaders = await hydrateRows(leadersRaw, { viewerId: userId });
             return {
@@ -406,13 +412,15 @@ function createPrideStats({
         return hay.includes(q);
     }
 
-    function publicPerson(userOrRow) {
+    function publicPerson(userOrRow, { allowWithoutHandle = false } = {}) {
         if (!userOrRow) return null;
         const handle = userOrRow.handle || null;
-        if (!handle) return null;
+        if (!handle && !allowWithoutHandle) return null;
+        const displayName = userOrRow.displayName || userOrRow.full_name || userOrRow.name || handle || 'Student';
         return {
             handle,
-            displayName: userOrRow.displayName || userOrRow.full_name || userOrRow.name || handle,
+            displayName,
+            userId: userOrRow.user_id || userOrRow.userId || null,
             accentColor: resolveAccentColor(userOrRow),
             avatarId: resolveAvatarId(userOrRow),
             bestCrown: betterCrown(userOrRow.bestCrown || userOrRow.best_crown, userOrRow.crown),
@@ -420,9 +428,10 @@ function createPrideStats({
         };
     }
 
-    async function goldPreview(spec, { viewerId } = {}) {
-        const gold = await goldForStat(spec, { viewerId });
-        if (!gold || !gold.handle) return null;
+    async function goldPreview(spec, { viewerId, userIds = null, requireListed = true } = {}) {
+        const gold = await goldForStat(spec, { viewerId, userIds, requireListed });
+        if (!gold) return null;
+        if (!gold.handle && requireListed) return null;
         return {
             handle: gold.handle,
             displayName: gold.displayName,
@@ -434,11 +443,12 @@ function createPrideStats({
         };
     }
 
-    async function goldForStat(spec, { viewerId } = {}) {
-        const raw = await prideRepo.listBoard(spec.key, spec, 1);
+    async function goldForStat(spec, { viewerId, userIds = null, requireListed = true } = {}) {
+        const raw = await prideRepo.listBoard(spec.key, spec, 1, { userIds, requireListed });
         const leaders = await hydrateRows(raw, { viewerId });
         const gold = leaders[0];
-        if (!gold || !gold.handle) return null;
+        if (!gold) return null;
+        if (!gold.handle && requireListed) return null;
         return {
             handle: gold.handle,
             displayName: gold.displayName,
@@ -451,8 +461,9 @@ function createPrideStats({
         };
     }
 
-    function publicGold(row, hidden) {
-        if (!row || !row.handle) return null;
+    function publicGold(row, hidden, { allowWithoutHandle = false } = {}) {
+        if (!row) return null;
+        if (!row.handle && !allowWithoutHandle) return null;
         if (hidden.has(String(row.userId || ''))) return null;
         return {
             handle: row.handle,
@@ -465,7 +476,7 @@ function createPrideStats({
         };
     }
 
-    async function decoratePeople(rows, { viewerId, hideUserIds = [] } = {}) {
+    async function decoratePeople(rows, { viewerId, hideUserIds = [], allowWithoutHandle = false } = {}) {
         const hidden = new Set((hideUserIds || []).map(String).filter(Boolean));
         const visible = (rows || []).filter((row) => row && !hidden.has(String(row.user_id || '')));
         const ids = visible.map((row) => row.user_id).filter(Boolean);
@@ -481,38 +492,54 @@ function createPrideStats({
             ...row,
             best_crown: (statsById.get(row.user_id) || {}).best_crown || null,
             following: following.has(row.user_id),
-        })).filter(Boolean);
+        }, { allowWithoutHandle })).filter(Boolean);
     }
 
-    async function discover(query, { hideUserIds = [], viewerId } = {}) {
+    async function discover(query, {
+        hideUserIds = [],
+        viewerId,
+        userIds = null,
+        requireListed = true,
+    } = {}) {
         const hidden = new Set((hideUserIds || []).map(String).filter(Boolean));
         const q = String(query || '').trim().slice(0, 40).toLowerCase();
         const specs = PRIDE_CATALOG.filter((spec) => boardMatchesQuery(spec, q)).slice(0, 8);
-        const golds = await Promise.all(specs.map((spec) => goldForStat(spec, { viewerId })));
+        const clubMode = Array.isArray(userIds);
+        const golds = await Promise.all(
+            specs.map((spec) => goldForStat(spec, { viewerId, userIds, requireListed }))
+        );
         const boards = specs.map((spec, index) => ({
             key: spec.key,
             label: spec.label,
             unit: spec.unit,
-            gold: publicGold(golds[index], hidden),
+            gold: publicGold(golds[index], hidden, { allowWithoutHandle: clubMode }),
         }));
 
         let people = [];
         if (q && typeof usersRepo.searchPublic === 'function') {
-            const rows = await usersRepo.searchPublic(q, 8);
-            people = await decoratePeople(rows, { viewerId, hideUserIds: [...hidden] });
+            const rows = await usersRepo.searchPublic(q, 8, { userIds: clubMode ? userIds : null });
+            people = await decoratePeople(rows, {
+                viewerId,
+                hideUserIds: [...hidden],
+                allowWithoutHandle: clubMode,
+            });
         } else {
             const seen = new Set();
             for (const gold of golds) {
-                if (!gold || !gold.handle || hidden.has(String(gold.userId || '')) || seen.has(gold.handle)) continue;
-                seen.add(gold.handle);
+                if (!gold) continue;
+                const key = gold.handle || gold.userId || gold.displayName;
+                if (!key || hidden.has(String(gold.userId || '')) || seen.has(key)) continue;
+                if (!gold.handle && !clubMode) continue;
+                seen.add(key);
                 people.push(publicPerson({
                     handle: gold.handle,
                     displayName: gold.displayName,
+                    userId: gold.userId,
                     accentColor: gold.accentColor,
                     avatarId: gold.avatarId,
                     bestCrown: gold.bestCrown,
                     following: gold.following,
-                }));
+                }, { allowWithoutHandle: clubMode }));
             }
             people = people.filter(Boolean).slice(0, 8);
         }

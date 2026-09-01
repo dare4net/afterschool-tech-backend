@@ -133,7 +133,32 @@ describe('W5 store and login streak', () => {
         });
         assert.equal(result.loginStreak, 7);
         assert.equal(result.streakBonusStars, 10);
+        assert.equal(result.streakBonusClaimed, false);
+        assert.equal(wallets.get('u1'), undefined);
+
+        const { claimStreakBonus } = require('../helpers/claimStreakBonus');
+        const claimed = await claimStreakBonus('u1', {
+            progressRepo: {
+                getOrCreate: async () => progress,
+                update: async (_id, update) => Object.assign(progress, update.$set),
+            },
+            walletRepo: {
+                earnTransaction: (amount, reason) => ({ amount, reason }),
+                applyBalanceChange: async (userId, { inc, transaction }) => {
+                    const wallet = wallets.get(userId) || { starBalance: 0, transactions: [] };
+                    wallet.starBalance += inc;
+                    wallet.transactions.push(transaction);
+                    wallets.set(userId, wallet);
+                    return wallet;
+                },
+                findByUserId: async (userId) => wallets.get(userId) || null,
+            },
+            prideStats: { syncFromProgressEvent: async () => ({}) },
+            recordProgressEvent: async () => ({ lifetimeStarsEarned: 10 }),
+        });
+        assert.equal(claimed.streakBonusStars, 10);
         assert.equal(wallets.get('u1').starBalance, 10);
+        assert.equal(progress.streakBonusClaimed, true);
         assert.equal(progress.lastStreakBonusStars, 10);
     });
 

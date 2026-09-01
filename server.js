@@ -23,6 +23,7 @@ const { requestIdMiddleware, requestLogMiddleware } = require('./middleware/requ
 const { healthHandler } = require('./controllers/healthController');
 const { log } = require('./helpers/logger');
 const temporaryAccessMiddleware = require('./middleware/temporaryAccess');
+const { createCorsOriginCallback } = require('./helpers/corsOrigins');
 
 
 const app = express();
@@ -33,19 +34,9 @@ app.use(requestLogMiddleware);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Add CORS middleware
+// Add CORS middleware — static allowlist + vanity *.localhost (dev) and *.{root} (prod)
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'https://v0-afterschool-tech.vercel.app',
-    'https://v0-afterschool-tech-git-beta-chatzteam-gmailcoms-projects.vercel.app',
-    'https://app.after-school.tech',
-    'https://afterschool-tech-beta.vercel.app',
-    'https://ast4-lesson-builder-chatzteam-gmailcoms-projects.vercel.app',
-    'https://ast.devinna.com',
-    'https://ast4-lesson-builder.vercel.app'
-  ],
+  origin: createCorsOriginCallback(),
   credentials: true,
 }));
 
@@ -70,6 +61,8 @@ app.use('/api/lessons', lessonRoutes);
 app.use('/api/beta', betaRoutes);
 app.use('/api/studio', studioRoutes);
 app.use('/api/superadmin', superadminRoutes);
+const orgsRoutes = require('./routes/orgsRoutes');
+app.use('/api/orgs', orgsRoutes);
 const walletRoutes = require('./routes/walletRoutes');
 const leaderboardRoutes = require('./routes/leaderboardRoutes');
 const statsRoutes = require('./routes/statsRoutes');

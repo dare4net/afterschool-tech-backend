@@ -480,24 +480,45 @@ exports.getAllLessonsByUser = async (req, res) => {
   try {
     const userId = req.user.user_id;
     const userIdString = String(userId);
+    const rawOrgId = req.query.org_id ? String(req.query.org_id).trim() : '';
     const mainDb = await getMainDb();
     const lessonsDb = await getLessonsDb();
 
-    // 1. Get user's programs from users collection
-    const user = await mainDb.collection('users').findOne(
-      {
-        $or: [
-          { user_id: userId },
-          { user_id: userIdString },
-          { user_id: Number(userId) || -1 },
-          ...(toObjectId(userId) ? [{ _id: toObjectId(userId) }] : [])
-        ]
-      },
-      { projection: { programs: 1 } }
-    );
+    let programIds = [];
 
-    if (!user?.programs?.length) {
-      console.log('[LESSON] No programs found for user');
+    if (rawOrgId) {
+      const regQuery = {
+        user_id: userId,
+        status: { $ne: 'unenrolled' },
+      };
+      if (rawOrgId === 'personal') {
+        regQuery.$or = [{ org_id: null }, { org_id: { $exists: false } }];
+      } else {
+        const oid = toObjectId(rawOrgId);
+        regQuery.org_id = oid ? { $in: [oid, rawOrgId, String(oid)] } : rawOrgId;
+      }
+      const registrations = await mainDb.collection('program_registrations')
+        .find(regQuery)
+        .toArray();
+      programIds = registrations.map((reg) => reg.program_id).filter(Boolean);
+    } else {
+      // Legacy: denormalized users.programs when no org lens requested
+      const user = await mainDb.collection('users').findOne(
+        {
+          $or: [
+            { user_id: userId },
+            { user_id: userIdString },
+            { user_id: Number(userId) || -1 },
+            ...(toObjectId(userId) ? [{ _id: toObjectId(userId) }] : [])
+          ]
+        },
+        { projection: { programs: 1 } }
+      );
+      programIds = user?.programs || [];
+    }
+
+    if (!programIds.length) {
+      console.log('[LESSON] No programs found for user / scope');
       return res.json([]);
     }
 
@@ -505,7 +526,7 @@ exports.getAllLessonsByUser = async (req, res) => {
     const earlyIds = await earlyUnlockIdsFor(userIdString);
 
     // 2. Iterate through all programs
-    for (const programId of user.programs) {
+    for (const programId of programIds) {
       console.log('[LESSON] Processing program:', programId);
 
       // Fetch full program document
@@ -622,11 +643,11 @@ exports.getAllLessonsByUser = async (req, res) => {
       return timeB - timeA;
     });
 
-    console.log(`[LESSON] Returning ${allConsolidatedLessons.length} consolidated lessons from ${user.programs.length} programs`);
+    console.log(`[LESSON] Returning ${allConsolidatedLessons.length} consolidated lessons from ${programIds.length} programs`);
 
     // Cache results
     if (redis) {
-      const cacheKey = `user:${userIdString}:lessons`;
+      const cacheKey = `user:${userIdString}:lessons:${rawOrgId || 'all'}`;
       try {
         await redis.setex(cacheKey, 3600, JSON.stringify(allConsolidatedLessons));
       } catch (err) { }

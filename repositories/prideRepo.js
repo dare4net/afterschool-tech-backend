@@ -86,26 +86,43 @@ async function getRank(statKey, userId) {
     return (await ranksCol()).findOne({ stat_key: statKey, user_id: userId });
 }
 
-async function listBoard(statKey, spec, limit = 50) {
+async function listBoard(statKey, spec, limit = 50, { userIds = null, requireListed = true } = {}) {
+    const filter = { stat_key: statKey };
+    if (requireListed) filter.listed = true;
+    if (Array.isArray(userIds)) {
+        if (!userIds.length) return [];
+        filter.user_id = { $in: userIds };
+    }
     return (await ranksCol())
-        .find({ stat_key: statKey, listed: true })
+        .find(filter)
         .sort(sortBoard(spec))
         .limit(Math.min(Number(limit) || 50, 50))
         .toArray();
 }
 
-async function countBetter(statKey, spec, value, updatedAt) {
-    return (await ranksCol()).countDocuments({
+async function countBetter(statKey, spec, value, updatedAt, { userIds = null, requireListed = true } = {}) {
+    const filter = {
         stat_key: statKey,
-        listed: true,
         ...betterFilter(spec, value, updatedAt),
-    });
+    };
+    if (requireListed) filter.listed = true;
+    if (Array.isArray(userIds)) {
+        if (!userIds.length) return 0;
+        filter.user_id = { $in: userIds };
+    }
+    return (await ranksCol()).countDocuments(filter);
 }
 
-async function getAtRank(statKey, spec, rank) {
+async function getAtRank(statKey, spec, rank, { userIds = null, requireListed = true } = {}) {
     const skip = Math.max(Number(rank) || 1, 1) - 1;
+    const filter = { stat_key: statKey };
+    if (requireListed) filter.listed = true;
+    if (Array.isArray(userIds)) {
+        if (!userIds.length) return null;
+        filter.user_id = { $in: userIds };
+    }
     const rows = await (await ranksCol())
-        .find({ stat_key: statKey, listed: true })
+        .find(filter)
         .sort(sortBoard(spec))
         .skip(skip)
         .limit(1)

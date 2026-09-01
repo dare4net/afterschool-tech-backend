@@ -7,6 +7,7 @@ const { statsEventBodySchema, validateBody } = require('../contracts/platform');
 router.use(authorize);
 
 router.get('/summary', statsController.getStudentStats);
+router.post('/claim-streak-bonus', statsController.claimStreakBonus);
 router.post('/event', validateBody(statsEventBodySchema), statsController.recordProgressEvent);
 
 module.exports = router;

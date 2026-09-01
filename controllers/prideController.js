@@ -1,6 +1,7 @@
 const { getAuthenticatedUserId } = require('../helpers/actorUser');
 const prideStats = require('../helpers/prideStats');
 const { getPrideStat } = require('../helpers/prideCatalog');
+const { resolveClubScope, parseOrgIdQuery } = require('../helpers/clubScope');
 
 function publicRow(row) {
     if (!row) return null;
@@ -14,6 +15,7 @@ function publicRow(row) {
         avatarId: row.avatarId || null,
         bestCrown: row.bestCrown || row.crown || null,
         following: row.following === true,
+        userId: row.userId || null,
     };
 }
 
@@ -39,12 +41,39 @@ function decodeStatKey(raw) {
     }
 }
 
+function mapScopeError(err, res) {
+    if (err && err.code === 'unauthorized') {
+        return res.status(401).json({ error: err.message, code: err.code });
+    }
+    if (err && err.code === 'org_forbidden') {
+        return res.status(403).json({ error: err.message, code: err.code });
+    }
+    return null;
+}
+
+function publicScope(scope) {
+    if (!scope || scope.type === 'global') {
+        return { type: 'global' };
+    }
+    return {
+        type: scope.type,
+        orgId: scope.orgId,
+        cohortId: scope.cohortId || null,
+    };
+}
+
 exports.listPride = async (req, res) => {
     try {
         const userId = getAuthenticatedUserId(req);
-        const summary = await prideStats.summaryFor(userId || null);
+        const orgId = parseOrgIdQuery(req.query);
+        const scope = await resolveClubScope({ orgId, viewerId: userId });
+        const summary = await prideStats.summaryFor(userId || null, {
+            userIds: scope.userIds,
+            requireListed: scope.requireListed,
+        });
         res.json({
             success: true,
+            scope: publicScope(scope),
             catalog: summary.catalog.map((item) => ({
                 key: item.key,
                 label: item.label,
@@ -65,6 +94,7 @@ exports.listPride = async (req, res) => {
             })),
         });
     } catch (err) {
+        if (mapScopeError(err, res)) return;
         console.error('[PRIDE] Error listing pride stats:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -77,12 +107,19 @@ exports.getBoard = async (req, res) => {
             return res.status(404).json({ error: 'Unknown stat' });
         }
         const userId = getAuthenticatedUserId(req);
-        const result = await prideStats.boardFor(spec.key, { userId: userId || null });
+        const orgId = parseOrgIdQuery(req.query);
+        const scope = await resolveClubScope({ orgId, viewerId: userId });
+        const result = await prideStats.boardFor(spec.key, {
+            userId: userId || null,
+            userIds: scope.userIds,
+            requireListed: scope.requireListed,
+        });
         if (result.error) {
             return res.status(result.status || 404).json({ error: result.error });
         }
         res.json({
             success: true,
+            scope: publicScope(scope),
             stat: {
                 key: result.stat.key,
                 label: result.stat.label,
@@ -94,6 +131,7 @@ exports.getBoard = async (req, res) => {
             you: publicYou(result.you),
         });
     } catch (err) {
+        if (mapScopeError(err, res)) return;
         console.error('[PRIDE] Error fetching pride board:', err);
         res.status(500).json({ error: 'Internal server error' });
     }

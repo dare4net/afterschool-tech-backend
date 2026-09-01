@@ -57,6 +57,7 @@ exports.getProfile = async (req, res) => {
     profile.pinnedStatKey = user.pinnedStatKey || null;
     profile.onboardingCompletedAt = user.onboardingCompletedAt || null;
     profile.onboardingSkippedAt = user.onboardingSkippedAt || null;
+    profile.publicAccess = user.public_access === true;
     res.json(profile);
   } catch (err) {
     console.error('MongoDB Error:', err);
@@ -218,5 +219,38 @@ exports.updateProfile = async (req, res) => {
     }
     console.error('MongoDB Error:', err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.updatePublicAccess = async (req, res) => {
+  const userId = req.user.user_id;
+  const body = req.validatedBody || req.body || {};
+  const enabled = body.enabled === true;
+
+  try {
+    const current = await usersRepo.findByUserId(userId);
+    if (!current) return res.status(404).json({ message: 'User not found' });
+
+    if (enabled) {
+      const orgMembershipsRepo = require('../repositories/orgMembershipsRepo');
+      const orgsRepo = require('../repositories/orgsRepo');
+      const memberships = await orgMembershipsRepo.listByUser(userId, { status: 'active' });
+      for (const membership of memberships) {
+        if (membership.role !== 'student') continue;
+        const org = await orgsRepo.findById(membership.orgId);
+        if (org && org.settings?.allowPublicOptIn === false) {
+          return res.status(403).json({
+            error: `${org.name} does not allow access to the public catalog.`,
+            code: 'public_access_blocked',
+          });
+        }
+      }
+    }
+
+    await usersRepo.updateIdentity(userId, { public_access: enabled });
+    return res.json({ success: true, publicAccess: enabled });
+  } catch (err) {
+    console.error('MongoDB Error:', err);
+    return res.status(500).json({ error: err.message });
   }
 };

@@ -261,6 +261,80 @@ const pushTokenBodySchema = z.object({
     token: z.string().min(20).max(4096),
 });
 
+const createOrgBodySchema = z.object({
+    name: z.string().trim().min(2).max(120),
+    slug: z.string().trim().min(2).max(48).optional(),
+    seatCap: z.coerce.number().int().min(0).max(100000).optional(),
+    status: z.enum(['active', 'suspended', 'trial']).optional(),
+    ownerUserId: z.string().trim().min(1).max(64).optional(),
+    ownerEmail: z.string().trim().email().optional(),
+}).refine((value) => Boolean(value.ownerUserId || value.ownerEmail), {
+    message: 'Provide ownerEmail or ownerUserId so the club gets an invite link',
+});
+
+const updateOrgBodySchema = z.object({
+    name: z.string().trim().min(2).max(120).optional(),
+    seatCap: z.coerce.number().int().min(0).max(100000).optional(),
+    status: z.enum(['active', 'suspended', 'trial']).optional(),
+    settings: z.object({
+        allowPublicOptIn: z.boolean().optional(),
+        vanityEnabled: z.boolean().optional(),
+    }).optional(),
+    billing: z.object({
+        plan: z.string().trim().max(64).nullable().optional(),
+        externalCustomerId: z.string().trim().max(128).nullable().optional(),
+    }).optional(),
+});
+
+const updateMyOrgBodySchema = z.object({
+    settings: z.object({
+        allowPublicOptIn: z.boolean(),
+    }),
+});
+
+const addOrgMemberBodySchema = z.object({
+    userId: z.string().trim().min(1).max(64).optional(),
+    email: z.string().trim().email().optional(),
+    role: z.enum(['owner', 'tutor', 'student']).default('tutor'),
+}).refine((value) => Boolean(value.userId || value.email), {
+    message: 'Provide userId or email',
+});
+
+const acceptOrgInviteBodySchema = z.object({
+    token: z.string().trim().min(16).max(128),
+});
+
+const completeOrgInviteBodySchema = z.object({
+    fullName: z.string().trim().min(2).max(120),
+    password: z.string().min(8).max(128),
+    cohortName: z.string().trim().min(2).max(120).optional(),
+});
+
+const createCohortBodySchema = z.object({
+    name: z.string().trim().min(2).max(120),
+    joinCode: z.string().trim().min(3).max(24).optional(),
+    programIds: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
+});
+
+const updateCohortBodySchema = z.object({
+    name: z.string().trim().min(2).max(120).optional(),
+    joinCode: z.string().trim().min(3).max(24).optional(),
+    status: z.enum(['active', 'archived']).optional(),
+    programIds: z.array(z.string().trim().min(1).max(64)).max(50).optional(),
+});
+
+const joinCohortBodySchema = z.object({
+    code: z.string().trim().min(3).max(24),
+});
+
+const joinPreviewQuerySchema = z.object({
+    code: z.string().trim().min(3).max(24),
+});
+
+const publicAccessBodySchema = z.object({
+    enabled: z.boolean(),
+});
+
 function zodDetails(error) {
     const items = error.issues || error.errors || [];
     return items.map((err) => ({
@@ -342,6 +416,17 @@ module.exports = {
     completeOnboardingBodySchema,
     markNotificationsBodySchema,
     pushTokenBodySchema,
+    createOrgBodySchema,
+    updateOrgBodySchema,
+    updateMyOrgBodySchema,
+    addOrgMemberBodySchema,
+    acceptOrgInviteBodySchema,
+    completeOrgInviteBodySchema,
+    createCohortBodySchema,
+    updateCohortBodySchema,
+    joinCohortBodySchema,
+    joinPreviewQuerySchema,
+    publicAccessBodySchema,
     validateBody,
     validateQuery,
 };

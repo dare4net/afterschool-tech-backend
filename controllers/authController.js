@@ -13,9 +13,23 @@ exports.signup = async (req, res) => {
   const { email, password, role, full_name } = req.body;
   try {
     const db = await getMainDb();
+    const emailNorm = String(email || '').trim().toLowerCase();
     // Check if user exists
-    const existing = await db.collection('users').findOne({ email });
+    const existing = await db.collection('users').findOne({
+      email: { $regex: `^${emailNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+    });
     if (existing) return res.status(400).json({ message: 'User already exists' });
+
+    if (String(role || '').toLowerCase() === 'student') {
+      try {
+        await require('../helpers/orgs').assertStudentSignupAllowed(emailNorm);
+      } catch (gateErr) {
+        if (gateErr && gateErr.code === 'staff_invite_pending') {
+          return res.status(409).json({ message: gateErr.message, code: gateErr.code });
+        }
+        throw gateErr;
+      }
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user_id = await generateUserId(); // Generate a unique 5-digit user_id
@@ -23,7 +37,7 @@ exports.signup = async (req, res) => {
     // Create user document
     const userDoc = {
       user_id,
-      email,
+      email: emailNorm,
       password_hash: hashedPassword,
       account_type: role,
       full_name: full_name || null,
@@ -75,7 +89,10 @@ exports.login = async (req, res) => {
   const { email, password } = req.body;
   try {
     const db = await getMainDb();
-    const user = await db.collection('users').findOne({ email });
+    const emailNorm = String(email || '').trim().toLowerCase();
+    const user = await db.collection('users').findOne({
+      email: { $regex: `^${emailNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+    });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
     // Use password_hash for bcrypt comparison

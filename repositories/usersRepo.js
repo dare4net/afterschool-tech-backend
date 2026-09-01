@@ -25,6 +25,16 @@ async function findByUserId(userId) {
     );
 }
 
+async function findByEmail(email) {
+    const value = String(email || '').trim().toLowerCase();
+    if (!value) return null;
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return (await col()).findOne(
+        { email: { $regex: `^${escaped}$`, $options: 'i' } },
+        { projection: { password_hash: 0 } }
+    );
+}
+
 async function findByHandle(handle) {
     if (!handle) return null;
     return (await col()).findOne(
@@ -42,20 +52,26 @@ async function findSafeByUserIds(userIds) {
     ).toArray();
 }
 
-async function searchPublic(query, limit = 8) {
+async function searchPublic(query, limit = 8, { userIds = null } = {}) {
     const q = String(query || '').trim().slice(0, 40);
     if (!q) return [];
     const safe = escapeSearchQuery(q);
     const cap = Math.min(Math.max(Number(limit) || 8, 1), 12);
+    const filter = {
+        $or: [
+            { handle: { $regex: `^${safe}`, $options: 'i' } },
+            { full_name: { $regex: safe, $options: 'i' } },
+        ],
+    };
+    if (Array.isArray(userIds)) {
+        if (!userIds.length) return [];
+        filter.user_id = { $in: userIds };
+    } else {
+        filter.isPublicProfile = true;
+        filter.handle = { $type: 'string', $ne: '' };
+    }
     return (await col()).find(
-        {
-            isPublicProfile: true,
-            handle: { $type: 'string', $ne: '' },
-            $or: [
-                { handle: { $regex: `^${safe}`, $options: 'i' } },
-                { full_name: { $regex: safe, $options: 'i' } },
-            ],
-        },
+        filter,
         { projection: { password_hash: 0, email: 0 } }
     ).limit(cap).toArray();
 }
@@ -81,6 +97,7 @@ async function updateIdentity(userId, patch) {
     if (patch.onboardingCompletedAt !== undefined) $set.onboardingCompletedAt = patch.onboardingCompletedAt;
     if (patch.onboardingSkippedAt !== undefined) $set.onboardingSkippedAt = patch.onboardingSkippedAt;
     if (patch.onboardingBonusAwarded !== undefined) $set.onboardingBonusAwarded = patch.onboardingBonusAwarded;
+    if (patch.public_access !== undefined) $set.public_access = patch.public_access === true;
     const result = await (await col()).findOneAndUpdate(
         { user_id: userId },
         { $set },
@@ -144,6 +161,7 @@ module.exports = {
     COLLECTION,
     ensureIndexes,
     findByUserId,
+    findByEmail,
     findByHandle,
     findSafeByUserIds,
     searchPublic,

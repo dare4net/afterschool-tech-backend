@@ -22,6 +22,8 @@ const createProgramSchema = z.object({
     cover_image: z.string().optional(),
     is_published: z.boolean().optional(),
     default_voice: z.string().optional(),
+    org_id: z.string().trim().min(1).max(64).nullable().optional(),
+    visibility: z.enum(['org', 'marketplace', 'unlisted']).optional(),
 });
 
 const updateProgramSchema = z.object({
@@ -31,6 +33,8 @@ const updateProgramSchema = z.object({
     cover_image: z.string().optional(),
     is_published: z.boolean().optional(),
     default_voice: z.string().optional(),
+    org_id: z.string().trim().min(1).max(64).nullable().optional(),
+    visibility: z.enum(['org', 'marketplace', 'unlisted']).optional(),
 });
 
 // Module Validators

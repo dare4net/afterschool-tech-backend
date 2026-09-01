@@ -4,6 +4,7 @@ const walletRepo = require('../repositories/walletRepo');
 const statsRepo = require('../repositories/statsRepo');
 const prideStats = require('../helpers/prideStats');
 const { applyLoginStreak } = require('../helpers/applyLoginStreak');
+const { claimStreakBonus } = require('../helpers/claimStreakBonus');
 
 /**
  * Get unified stats summary for a student's dashboard
@@ -66,6 +67,8 @@ exports.getStudentStats = async (req, res) => {
                 streakAlreadyCounted: streak.alreadyCounted,
                 streakUsedFreeze: streak.usedFreeze,
                 streakBonusStars: streak.streakBonusStars || 0,
+                streakBonusClaimed: streak.streakBonusClaimed !== false,
+                pendingStreakBonusMilestone: streak.pendingStreakBonusMilestone || null,
                 streakFreezeRemaining: streak.freezeRemaining || 0,
                 nextStreakMilestone: streak.nextMilestone || null,
                 nextStreakMilestoneReward: streak.nextMilestoneReward || 0,
@@ -73,6 +76,23 @@ exports.getStudentStats = async (req, res) => {
         });
     } catch (err) {
         console.error('[STATS] Error fetching student stats:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+exports.claimStreakBonus = async (req, res) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const result = await claimStreakBonus(userId);
+        if (result.error) {
+            return res.status(result.status || 400).json({ error: result.error });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('[STATS] Error claiming streak bonus:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 };

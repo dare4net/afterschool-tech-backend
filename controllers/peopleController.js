@@ -112,10 +112,12 @@ exports.getPublicProfile = async (req, res) => {
 };
 
 function publicPerson(row) {
-    if (!row || !row.handle) return null;
+    if (!row) return null;
+    if (!row.handle && !row.displayName) return null;
     return {
-        handle: row.handle,
-        displayName: row.displayName || row.handle,
+        handle: row.handle || null,
+        displayName: row.displayName || row.handle || 'Student',
+        userId: row.userId || null,
         accentColor: row.accentColor || null,
         avatarId: row.avatarId || null,
         avatarFrame: row.avatarFrame || null,
@@ -131,10 +133,10 @@ function publicBoard(row) {
         key: row.key,
         label: row.label,
         unit: row.unit,
-        gold: row.gold && row.gold.handle
+        gold: row.gold
             ? {
-                handle: row.gold.handle,
-                displayName: row.gold.displayName,
+                handle: row.gold.handle || null,
+                displayName: row.gold.displayName || row.gold.handle || 'Student',
                 value: row.gold.value,
                 accentColor: row.gold.accentColor,
                 avatarId: row.gold.avatarId || null,
@@ -151,10 +153,34 @@ exports.searchPeople = async (req, res) => {
         const q = typeof req.query.q === 'string' ? req.query.q : '';
         const viewerId = getAuthenticatedUserId(req);
         const hideUserIds = viewerId ? await followGraph.hiddenUserIds(viewerId) : [];
-        const result = await prideStats.discover(q, { hideUserIds, viewerId });
+        const { resolveClubScope, parseOrgIdQuery } = require('../helpers/clubScope');
+        const orgId = parseOrgIdQuery(req.query);
+        let scope;
+        try {
+            scope = await resolveClubScope({ orgId, viewerId });
+        } catch (err) {
+            if (err && err.code === 'unauthorized') {
+                return res.status(401).json({ error: err.message, code: err.code });
+            }
+            if (err && err.code === 'org_forbidden') {
+                return res.status(403).json({ error: err.message, code: err.code });
+            }
+            throw err;
+        }
+        const result = await prideStats.discover(q, {
+            hideUserIds,
+            viewerId,
+            userIds: scope.userIds,
+            requireListed: scope.requireListed,
+        });
         res.json({
             success: true,
             mode: result.mode,
+            scope: {
+                type: scope.type,
+                orgId: scope.orgId,
+                cohortId: scope.cohortId || null,
+            },
             people: (result.people || []).map(publicPerson).filter(Boolean),
             boards: (result.boards || []).map(publicBoard).filter(Boolean),
         });

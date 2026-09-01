@@ -9,6 +9,9 @@ const { log } = require('../helpers/logger');
 const { recordProgressEvent } = require('../helpers/studentProgress');
 const prideStats = require('../helpers/prideStats');
 const { notify } = require('../helpers/notify');
+const { requireOrgStaff } = require('../helpers/orgAccess');
+const { normalizeVisibility, asOrgId } = require('../helpers/programVisibility');
+const studioAccess = require('../helpers/studioAccess');
 
 const TUTOR_SESSION_LOCK_MS = 8000;
 
@@ -48,6 +51,10 @@ const toObjectId = (id) => {
     }
 };
 
+async function loadEditableProgram(db, programId, userId) {
+    return studioAccess.findProgramForEditor(db, programId, userId);
+}
+
 // ===========================
 // PROGRAM CONTROLLERS
 // ===========================
@@ -58,7 +65,15 @@ exports.createProgram = async (req, res) => {
         const db = await getMainDb();
         const user_id = req.user.user_id;
 
-        const { name, description, default_voice } = req.validatedBody;
+        const { name, description, default_voice, org_id: rawOrgId, visibility: rawVisibility } = req.validatedBody;
+
+        let orgId = null;
+        if (rawOrgId) {
+            const { org } = await requireOrgStaff(rawOrgId, user_id);
+            orgId = asOrgId(org.id);
+        }
+
+        const visibility = normalizeVisibility(rawVisibility, { hasOrg: Boolean(orgId) });
 
         const program = {
             tutor_id: user_id,
@@ -66,6 +81,8 @@ exports.createProgram = async (req, res) => {
             description: description || '',
             default_voice: default_voice || 'en-GB-SoniaNeural',
             modules: [],
+            org_id: orgId,
+            visibility,
             created_at: new Date(),
             updated_at: new Date()
         };
@@ -80,21 +97,53 @@ exports.createProgram = async (req, res) => {
             }
         });
     } catch (error) {
+        if (error && error.code === 'org_forbidden') {
+            return res.status(403).json({ error: 'Not allowed to create programs for this organisation' });
+        }
+        if (error && error.code === 'org_not_found') {
+            return res.status(404).json({ error: 'Organisation not found' });
+        }
         console.error('Error creating program:', error);
         res.status(500).json({ error: error.message });
     }
 };
 
-// Get all programs for a tutor
+// Get all programs for a tutor (optional ?org_id= scopes to a club)
 exports.getPrograms = async (req, res) => {
     try {
         const db = await getMainDb();
         const user_id = req.user.user_id;
         const userObjId = toObjectId(user_id);
         const tutorQuery = userObjId ? { $in: [user_id, userObjId] } : user_id;
+        const rawOrgId = req.query.org_id ? String(req.query.org_id).trim() : '';
+
+        let filter = { tutor_id: tutorQuery, is_deleted: { $ne: true } };
+
+        if (rawOrgId === 'personal') {
+            filter = {
+                tutor_id: tutorQuery,
+                is_deleted: { $ne: true },
+                $or: [{ org_id: null }, { org_id: { $exists: false } }],
+            };
+        } else if (rawOrgId) {
+            const { membership } = await requireOrgStaff(rawOrgId, user_id);
+            const orgOid = asOrgId(rawOrgId);
+            const orgMatch = orgOid
+                ? { $in: [orgOid, String(orgOid), rawOrgId] }
+                : rawOrgId;
+            if (membership.role === 'owner') {
+                filter = { org_id: orgMatch, is_deleted: { $ne: true } };
+            } else {
+                filter = {
+                    org_id: orgMatch,
+                    tutor_id: tutorQuery,
+                    is_deleted: { $ne: true },
+                };
+            }
+        }
 
         const programs = await db.collection('programs')
-            .find({ tutor_id: tutorQuery })
+            .find(filter)
             .sort({ created_at: -1 })
             .toArray();
 
@@ -137,6 +186,9 @@ exports.getPrograms = async (req, res) => {
 
         res.json(enrichedPrograms);
     } catch (error) {
+        if (error && error.code === 'org_forbidden') {
+            return res.status(403).json({ error: 'Not allowed to view this organisation’s programs' });
+        }
         console.error('Error fetching programs:', error);
         res.status(500).json({ error: error.message });
     }
@@ -150,10 +202,7 @@ exports.getProgram = async (req, res) => {
         const user_id = req.user.user_id;
         const programObjectId = toObjectId(id);
 
-        const program = await db.collection('programs').findOne({
-            _id: programObjectId,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, programObjectId, user_id);
 
         if (!program) {
             return res.status(404).json({ error: 'Program not found' });
@@ -218,13 +267,29 @@ exports.updateProgram = async (req, res) => {
         const updateData = req.validatedBody;
 
         // Verify ownership
-        const program = await db.collection('programs').findOne({
-            _id: toObjectId(id),
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, id, user_id);
 
         if (!program) {
             return res.status(404).json({ error: 'Program not found' });
+        }
+
+        if (Object.prototype.hasOwnProperty.call(updateData, 'org_id')) {
+            if (updateData.org_id) {
+                const { org } = await requireOrgStaff(updateData.org_id, user_id);
+                updateData.org_id = asOrgId(org.id);
+            } else {
+                updateData.org_id = null;
+            }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(updateData, 'visibility')) {
+            updateData.visibility = normalizeVisibility(updateData.visibility, {
+                hasOrg: Boolean(
+                    Object.prototype.hasOwnProperty.call(updateData, 'org_id')
+                        ? updateData.org_id
+                        : program.org_id
+                ),
+            });
         }
 
         // Handle thumbnail upload to Cloudinary & previous image deletion
@@ -261,6 +326,12 @@ exports.updateProgram = async (req, res) => {
 
         res.json({ message: 'Program updated successfully' });
     } catch (error) {
+        if (error && error.code === 'org_forbidden') {
+            return res.status(403).json({ error: 'Not allowed to move this program into that organisation' });
+        }
+        if (error && error.code === 'org_not_found') {
+            return res.status(404).json({ error: 'Organisation not found' });
+        }
         console.error('Error updating program:', error);
         res.status(500).json({ error: error.message });
     }
@@ -274,10 +345,7 @@ exports.deleteProgram = async (req, res) => {
         const user_id = req.user.user_id;
 
         const programObjectId = toObjectId(id);
-        const program = await db.collection('programs').findOne({
-            _id: programObjectId,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, programObjectId, user_id);
 
         if (!program) {
             return res.status(404).json({ error: 'Program not found' });
@@ -355,10 +423,7 @@ exports.createModule = async (req, res) => {
         const { name, description, order, default_voice } = req.validatedBody;
 
         // Verify program ownership
-        const program = await db.collection('programs').findOne({
-            _id: toObjectId(programId),
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, programId, user_id);
 
         if (!program) {
             return res.status(404).json({ error: 'Program not found' });
@@ -407,10 +472,7 @@ exports.getModules = async (req, res) => {
         const user_id = req.user.user_id;
 
         // Verify program ownership
-        const program = await db.collection('programs').findOne({
-            _id: toObjectId(programId),
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, programId, user_id);
 
         if (!program) {
             return res.status(404).json({ error: 'Program not found' });
@@ -442,10 +504,7 @@ exports.getModule = async (req, res) => {
         }
 
         // Verify program ownership
-        const program = await db.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -473,10 +532,7 @@ exports.updateModule = async (req, res) => {
         }
 
         // Verify program ownership
-        const program = await db.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -538,10 +594,7 @@ exports.deleteModule = async (req, res) => {
         }
 
         // Verify program ownership
-        const program = await db.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -631,10 +684,7 @@ exports.createLesson = async (req, res) => {
             return res.status(404).json({ error: 'Module not found' });
         }
 
-        const program = await mainDb.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(mainDb, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -712,10 +762,7 @@ exports.getLessons = async (req, res) => {
             return res.status(404).json({ error: 'Module not found' });
         }
 
-        const program = await db.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(db, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -749,10 +796,7 @@ exports.getLesson = async (req, res) => {
 
         // Verify ownership through module and program
         const module = await mainDb.collection('modules').findOne({ _id: lesson.module_id });
-        const program = await mainDb.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(mainDb, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -815,10 +859,7 @@ exports.updateLesson = async (req, res) => {
 
         // Verify ownership
         const module = await mainDb.collection('modules').findOne({ _id: lesson.module_id });
-        const program = await mainDb.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(mainDb, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -897,10 +938,7 @@ exports.deleteLesson = async (req, res) => {
 
         // Verify ownership
         const module = await mainDb.collection('modules').findOne({ _id: lesson.module_id });
-        const program = await mainDb.collection('programs').findOne({
-            _id: module.program_id,
-            tutor_id: user_id
-        });
+        const program = await loadEditableProgram(mainDb, module.program_id, user_id);
 
         if (!program) {
             return res.status(403).json({ error: 'Not authorized' });
@@ -932,7 +970,7 @@ exports.getStudioStudents = async (req, res) => {
         const user_id = req.user.user_id;
 
         // 1. Get tutor's programs
-        const myPrograms = await db.collection('programs').find({ tutor_id: user_id }).toArray();
+        const myPrograms = await studioAccess.findAccessiblePrograms(db, user_id);
         const programIds = myPrograms.map(p => p._id);
 
         // 2. Get all registrations
@@ -998,7 +1036,7 @@ exports.getStudioStudentDetail = async (req, res) => {
         const student_id = req.params.id;
 
         // 1. Get tutor's programs
-        const myPrograms = await db.collection('programs').find({ tutor_id: tutor_id }).toArray();
+        const myPrograms = await studioAccess.findAccessiblePrograms(db, tutor_id);
         const programIds = myPrograms.map(p => p._id);
 
         // 2. Get student profile
@@ -1066,10 +1104,7 @@ exports.getStudioStudentProgramBreakdown = async (req, res) => {
         const program_id = req.params.programId;
 
         // 1. Verify program belongs to tutor
-        const program = await db.collection('programs').findOne({
-            _id: toObjectId(program_id),
-            tutor_id: tutor_id
-        });
+        const program = await loadEditableProgram(db, program_id, tutor_id);
 
         if (!program) {
             return res.status(404).json({ error: 'Program not found or access denied' });
@@ -1212,7 +1247,7 @@ exports.getStudioStats = async (req, res) => {
         const user_id = req.user.user_id;
 
         // 1. Get tutor's programs
-        const myPrograms = await db.collection('programs').find({ tutor_id: user_id }).toArray();
+        const myPrograms = await studioAccess.findAccessiblePrograms(db, user_id);
         const programIds = myPrograms.map(p => p._id);
 
         // 2. Count total students across all these programs
@@ -1249,7 +1284,7 @@ exports.getStudioActivity = async (req, res) => {
         const user_id = req.user.user_id;
 
         // 1. Get tutor's programs and their lessons
-        const myPrograms = await db.collection('programs').find({ tutor_id: user_id }).toArray();
+        const myPrograms = await studioAccess.findAccessiblePrograms(db, user_id);
         const programIds = myPrograms.map(p => p._id);
 
         const modules = await db.collection('modules').find({
