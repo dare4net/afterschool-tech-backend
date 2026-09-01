@@ -1,6 +1,11 @@
 const { ObjectId } = require('mongodb');
 const { getMainDb } = require('../config/database');
 const { normalizeOrgSlug } = require('../helpers/orgSlug');
+const {
+    mapSettingsFromDoc,
+    defaultSettingsForCreate,
+    brandingPatchToDb,
+} = require('../helpers/orgBranding');
 
 const COLLECTION = 'orgs';
 
@@ -22,16 +27,14 @@ function asObjectId(value) {
 
 function toPublicOrg(doc, extras = {}) {
     if (!doc) return null;
+    const slug = doc.slug;
     return {
         id: String(doc._id),
         name: doc.name,
-        slug: doc.slug,
+        slug,
         status: doc.status || 'active',
         seatCap: Number(doc.seat_cap) || 0,
-        settings: {
-            allowPublicOptIn: doc.settings?.allow_public_opt_in !== false,
-            vanityEnabled: doc.settings?.vanity_enabled === true,
-        },
+        settings: mapSettingsFromDoc(doc.settings, slug),
         billing: {
             plan: doc.billing?.plan || null,
             externalCustomerId: doc.billing?.external_customer_id || null,
@@ -63,6 +66,8 @@ async function create({ name, slug, seatCap = 40, status = 'active', settings = 
         status: status === 'suspended' || status === 'trial' ? status : 'active',
         seat_cap: cap,
         settings: {
+            ...defaultSettingsForCreate(normalized),
+            ...brandingPatchToDb(settings, { tier: 'standard' }),
             allow_public_opt_in: settings.allowPublicOptIn !== false,
             vanity_enabled: settings.vanityEnabled === true,
         },
@@ -131,11 +136,11 @@ async function update(orgId, patch = {}) {
         $set.status = patch.status;
     }
     if (patch.settings) {
-        if (patch.settings.allowPublicOptIn !== undefined) {
-            $set['settings.allow_public_opt_in'] = patch.settings.allowPublicOptIn === true;
-        }
-        if (patch.settings.vanityEnabled !== undefined) {
-            $set['settings.vanity_enabled'] = patch.settings.vanityEnabled === true;
+        const existing = await (await col()).findOne({ _id: id }, { projection: { settings: 1, slug: 1 } });
+        const tier = existing?.settings?.branding_tier || 'standard';
+        const dbPatch = brandingPatchToDb(patch.settings, { tier });
+        for (const [key, value] of Object.entries(dbPatch)) {
+            $set[`settings.${key}`] = value;
         }
     }
     if (patch.billing) {

@@ -1,4 +1,5 @@
 const orgs = require('../helpers/orgs');
+const { publicBrandingFromOrg } = require('../helpers/orgBranding');
 const cohorts = require('../helpers/cohorts');
 const { listOrgPrograms } = require('../helpers/orgPrograms');
 const { requireOrgStaff, requireOrgOwner, listStaffOrgs } = require('../helpers/orgAccess');
@@ -37,6 +38,7 @@ exports.createOrg = async (req, res) => {
             status: body.status,
             ownerUserId: body.ownerUserId,
             ownerEmail: body.ownerEmail,
+            settings: body.settings || {},
             actor: 'superadmin',
         });
         return res.status(201).json({ success: true, ...result });
@@ -107,11 +109,7 @@ exports.getPublicOrgBySlug = async (req, res) => {
 
         return res.json({
             success: true,
-            org: {
-                id: org.id,
-                name: org.name,
-                slug: org.slug,
-            },
+            org: publicBrandingFromOrg(org),
         });
     } catch (err) {
         return mapOrgError(err, res);
@@ -201,9 +199,7 @@ exports.updateMyOrg = async (req, res) => {
         await requireOrgOwner(req.params.id, userId);
         const body = req.validatedBody || req.body || {};
         const org = await orgs.updateOrg(req.params.id, {
-            settings: {
-                allowPublicOptIn: body.settings.allowPublicOptIn,
-            },
+            settings: body.settings || {},
         });
         if (!org) return res.status(404).json({ error: 'Org not found' });
         return res.json({ success: true, org });

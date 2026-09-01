@@ -4,7 +4,7 @@ const defaultCohortsRepo = require('../repositories/cohortsRepo');
 const defaultCohortMembershipsRepo = require('../repositories/cohortMembershipsRepo');
 const defaultCurriculumRepo = require('../repositories/curriculumRepo');
 const defaultUsersRepo = require('../repositories/usersRepo');
-const { normalizeJoinCode, suggestJoinCode } = require('./joinCode');
+const { resolveOrgAccent } = require('./orgBranding');
 const { seatCountsForRole } = require('./orgSlug');
 
 function createCohortsService({
@@ -110,6 +110,9 @@ function createCohortsService({
                 name: org.name,
                 slug: org.slug,
                 status: org.status,
+                accentColor: org.settings?.accentColor || resolveOrgAccent(org.slug, null),
+                welcomeMessage: org.settings?.welcomeMessage || null,
+                logoUrl: org.settings?.logoUrl || null,
             },
         };
     }

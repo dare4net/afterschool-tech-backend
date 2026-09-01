@@ -63,6 +63,7 @@ function createOrgsService({
         status = 'active',
         ownerUserId = null,
         ownerEmail = null,
+        settings = {},
         actor = null,
     } = {}) {
         const resolvedSlug = normalizeOrgSlug(slug) || normalizeOrgSlug(slugifyOrgName(name));
@@ -71,6 +72,7 @@ function createOrgsService({
             slug: resolvedSlug,
             seatCap,
             status,
+            settings,
         });
 
         let owner = null;

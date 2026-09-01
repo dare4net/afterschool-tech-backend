@@ -261,6 +261,20 @@ const pushTokenBodySchema = z.object({
     token: z.string().min(20).max(4096),
 });
 
+const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Use a hex colour like #58CC02');
+
+const orgBrandingSettingsSchema = z.object({
+    allowPublicOptIn: z.boolean().optional(),
+    vanityEnabled: z.boolean().optional(),
+    accentColor: hexColorSchema.optional(),
+    logoUrl: z.string().trim().url().max(512).nullable().optional(),
+    bannerUrl: z.string().trim().url().max(512).nullable().optional(),
+    welcomeMessage: z.string().trim().min(1).max(240).nullable().optional(),
+    prideScope: z.enum(['cohort', 'org']).optional(),
+    brandingTier: z.enum(['standard', 'branded', 'white_label']).optional(),
+    joinLayout: z.enum(['standard', 'hero']).optional(),
+});
+
 const createOrgBodySchema = z.object({
     name: z.string().trim().min(2).max(120),
     slug: z.string().trim().min(2).max(48).optional(),
@@ -268,6 +282,7 @@ const createOrgBodySchema = z.object({
     status: z.enum(['active', 'suspended', 'trial']).optional(),
     ownerUserId: z.string().trim().min(1).max(64).optional(),
     ownerEmail: z.string().trim().email().optional(),
+    settings: orgBrandingSettingsSchema.pick({ accentColor: true }).optional(),
 }).refine((value) => Boolean(value.ownerUserId || value.ownerEmail), {
     message: 'Provide ownerEmail or ownerUserId so the club gets an invite link',
 });
@@ -276,10 +291,7 @@ const updateOrgBodySchema = z.object({
     name: z.string().trim().min(2).max(120).optional(),
     seatCap: z.coerce.number().int().min(0).max(100000).optional(),
     status: z.enum(['active', 'suspended', 'trial']).optional(),
-    settings: z.object({
-        allowPublicOptIn: z.boolean().optional(),
-        vanityEnabled: z.boolean().optional(),
-    }).optional(),
+    settings: orgBrandingSettingsSchema.optional(),
     billing: z.object({
         plan: z.string().trim().max(64).nullable().optional(),
         externalCustomerId: z.string().trim().max(128).nullable().optional(),
@@ -287,9 +299,12 @@ const updateOrgBodySchema = z.object({
 });
 
 const updateMyOrgBodySchema = z.object({
-    settings: z.object({
-        allowPublicOptIn: z.boolean(),
-    }),
+    settings: orgBrandingSettingsSchema
+        .pick({ allowPublicOptIn: true, accentColor: true })
+        .partial()
+        .refine((value) => Object.keys(value).length > 0, {
+            message: 'Provide at least one setting to update',
+        }),
 });
 
 const addOrgMemberBodySchema = z.object({
