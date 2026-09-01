@@ -294,7 +294,7 @@ const updateOrgBodySchema = z.object({
     status: z.enum(['active', 'suspended', 'trial']).optional(),
     settings: orgBrandingSettingsSchema.optional(),
     billing: z.object({
-        plan: z.string().trim().max(64).nullable().optional(),
+        plan: z.enum(['club_standard', 'club_branded', 'club_white_label']).nullable().optional(),
         externalCustomerId: z.string().trim().max(128).nullable().optional(),
     }).optional(),
 });

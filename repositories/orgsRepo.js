@@ -122,31 +122,43 @@ async function list({ limit = 100 } = {}) {
 async function update(orgId, patch = {}) {
     const id = asObjectId(orgId);
     if (!id) return null;
+
+    const existing = await (await col()).findOne({ _id: id });
+    if (!existing) return null;
+
+    const { expandOrgPatchWithBillingPlan } = require('../helpers/clubPlans');
+    const resolvedPatch = expandOrgPatchWithBillingPlan(
+        patch,
+        toPublicOrg(existing),
+    );
+
     const $set = { updated_at: new Date() };
-    if (patch.name !== undefined) $set.name = String(patch.name).trim().slice(0, 120);
-    if (patch.seatCap !== undefined) {
-        $set.seat_cap = Math.max(0, Math.min(Number(patch.seatCap) || 0, 100000));
+    if (resolvedPatch.name !== undefined) $set.name = String(resolvedPatch.name).trim().slice(0, 120);
+    if (resolvedPatch.seatCap !== undefined) {
+        $set.seat_cap = Math.max(0, Math.min(Number(resolvedPatch.seatCap) || 0, 100000));
     }
-    if (patch.status !== undefined) {
-        if (!['active', 'suspended', 'trial'].includes(patch.status)) {
+    if (resolvedPatch.status !== undefined) {
+        if (!['active', 'suspended', 'trial'].includes(resolvedPatch.status)) {
             const err = new Error('Invalid org status');
             err.code = 'invalid_status';
             throw err;
         }
-        $set.status = patch.status;
+        $set.status = resolvedPatch.status;
     }
-    if (patch.settings) {
-        const existing = await (await col()).findOne({ _id: id }, { projection: { settings: 1, slug: 1 } });
-        const tier = existing?.settings?.branding_tier || 'standard';
-        const dbPatch = brandingPatchToDb(patch.settings, { tier });
+    if (resolvedPatch.settings) {
+        const { normalizeBrandingTier } = require('../helpers/orgBranding');
+        const nextTier = normalizeBrandingTier(
+            resolvedPatch.settings.brandingTier || existing?.settings?.branding_tier || 'standard',
+        );
+        const dbPatch = brandingPatchToDb(resolvedPatch.settings, { tier: nextTier });
         for (const [key, value] of Object.entries(dbPatch)) {
             $set[`settings.${key}`] = value;
         }
     }
-    if (patch.billing) {
-        if (patch.billing.plan !== undefined) $set['billing.plan'] = patch.billing.plan;
-        if (patch.billing.externalCustomerId !== undefined) {
-            $set['billing.external_customer_id'] = patch.billing.externalCustomerId;
+    if (resolvedPatch.billing) {
+        if (resolvedPatch.billing.plan !== undefined) $set['billing.plan'] = resolvedPatch.billing.plan;
+        if (resolvedPatch.billing.externalCustomerId !== undefined) {
+            $set['billing.external_customer_id'] = resolvedPatch.billing.externalCustomerId;
         }
     }
     const result = await (await col()).findOneAndUpdate(
