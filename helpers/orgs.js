@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const defaultOrgsRepo = require('../repositories/orgsRepo');
 const defaultOrgMembershipsRepo = require('../repositories/orgMembershipsRepo');
 const defaultUsersRepo = require('../repositories/usersRepo');
+const defaultCohortMembershipsRepo = require('../repositories/cohortMembershipsRepo');
 const defaultCohorts = require('./cohorts');
 const { slugifyOrgName, normalizeOrgSlug, seatCountsForRole } = require('./orgSlug');
 const { issueAuthToken } = require('./authIdentity');
@@ -16,6 +17,7 @@ function makeInviteToken() {
 function createOrgsService({
     orgsRepo = defaultOrgsRepo,
     orgMembershipsRepo = defaultOrgMembershipsRepo,
+    cohortMembershipsRepo = defaultCohortMembershipsRepo,
     usersRepo = defaultUsersRepo,
     cohortsService = defaultCohorts,
     hashPassword = (password) => bcrypt.hash(password, 10),
@@ -286,6 +288,70 @@ function createOrgsService({
         return cancelled;
     }
 
+    async function deactivateOrgMembership({ orgId, userId } = {}) {
+        const oid = String(orgId || '').trim();
+        const uid = String(userId || '').trim();
+        await cohortMembershipsRepo.deactivateForOrgUser(oid, uid);
+        return orgMembershipsRepo.removeMember(oid, uid);
+    }
+
+    async function removeStudentMember({ orgId, userId, actorUserId = null } = {}) {
+        const oid = String(orgId || '').trim();
+        const uid = String(userId || '').trim();
+        if (!oid || !uid) {
+            const err = new Error('orgId and userId are required');
+            err.code = 'invalid_member';
+            throw err;
+        }
+        if (!actorUserId) {
+            const err = new Error('Forbidden');
+            err.code = 'org_forbidden';
+            throw err;
+        }
+        await require('./orgAccess').requireOrgStaff(oid, actorUserId);
+
+        const membership = await orgMembershipsRepo.findMembership(oid, uid);
+        if (!membership || membership.status !== 'active') {
+            const err = new Error('Active membership not found');
+            err.code = 'invalid_member';
+            throw err;
+        }
+        if (membership.role === 'owner') {
+            const err = new Error('Cannot remove the club owner');
+            err.code = 'invalid_role';
+            throw err;
+        }
+        if (membership.role !== 'student') {
+            await require('./orgAccess').requireOrgOwner(oid, actorUserId);
+        }
+
+        return deactivateOrgMembership({ orgId: oid, userId: uid });
+    }
+
+    async function leaveOrgAsStudent({ orgId, userId } = {}) {
+        const oid = String(orgId || '').trim();
+        const uid = String(userId || '').trim();
+        if (!oid || !uid) {
+            const err = new Error('orgId and userId are required');
+            err.code = 'invalid_member';
+            throw err;
+        }
+
+        const membership = await orgMembershipsRepo.findMembership(oid, uid);
+        if (!membership || membership.status !== 'active') {
+            const err = new Error('Active membership not found');
+            err.code = 'invalid_member';
+            throw err;
+        }
+        if (membership.role !== 'student') {
+            const err = new Error('Only students can leave a club this way');
+            err.code = 'invalid_role';
+            throw err;
+        }
+
+        return deactivateOrgMembership({ orgId: oid, userId: uid });
+    }
+
     async function assertStudentSignupAllowed(email) {
         const pending = await orgMembershipsRepo.findPendingStaffInviteByEmail(email);
         if (pending) {
@@ -530,6 +596,8 @@ function createOrgsService({
         acceptInvite,
         completeInvite,
         cancelInvite,
+        removeStudentMember,
+        leaveOrgAsStudent,
         assertStudentSignupAllowed,
         withSeatUsage,
     };
@@ -551,6 +619,8 @@ module.exports = {
     acceptInvite: defaults.acceptInvite,
     completeInvite: defaults.completeInvite,
     cancelInvite: defaults.cancelInvite,
+    removeStudentMember: defaults.removeStudentMember,
+    leaveOrgAsStudent: defaults.leaveOrgAsStudent,
     assertStudentSignupAllowed: defaults.assertStudentSignupAllowed,
     withSeatUsage: defaults.withSeatUsage,
 };

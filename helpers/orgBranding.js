@@ -68,7 +68,8 @@ function mapSettingsFromDoc(docSettings, slug) {
         welcomeMessage: orgCanUse(tier, 'welcome') ? (s.welcome_message || null) : null,
         prideScope: normalizePrideScope(s.pride_scope),
         brandingTier: tier,
-        joinLayout: normalizeJoinLayout(s.join_layout),
+        joinLayout: orgCanUse(tier, 'joinLayout') ? normalizeJoinLayout(s.join_layout) : 'standard',
+        faviconUrl: orgCanUse(tier, 'favicon') ? (s.favicon_url || null) : null,
     };
 }
 
@@ -85,6 +86,11 @@ function defaultSettingsForCreate(slug) {
 
 function publicBrandingFromOrg(org) {
     if (!org) return null;
+    const tier = normalizeBrandingTier(org.settings?.brandingTier);
+    const joinLayout = orgCanUse(tier, 'joinLayout')
+        ? normalizeJoinLayout(org.settings?.joinLayout)
+        : 'standard';
+    const faviconUrl = orgCanUse(tier, 'favicon') ? (org.settings?.faviconUrl || null) : null;
     return {
         id: org.id,
         name: org.name,
@@ -92,6 +98,9 @@ function publicBrandingFromOrg(org) {
         accentColor: org.settings?.accentColor || resolveOrgAccent(org.slug, null),
         welcomeMessage: org.settings?.welcomeMessage || null,
         logoUrl: org.settings?.logoUrl || null,
+        bannerUrl: org.settings?.bannerUrl || null,
+        joinLayout,
+        faviconUrl,
     };
 }
 
@@ -126,6 +135,9 @@ function brandingPatchToDb(patch = {}, { tier = 'standard' } = {}) {
     }
     if (patch.joinLayout !== undefined && orgCanUse(tier, 'joinLayout')) {
         out.join_layout = normalizeJoinLayout(patch.joinLayout);
+    }
+    if (patch.faviconUrl !== undefined && orgCanUse(tier, 'favicon')) {
+        out.favicon_url = patch.faviconUrl ? String(patch.faviconUrl).trim().slice(0, 512) : null;
     }
     return out;
 }

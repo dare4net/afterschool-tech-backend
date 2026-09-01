@@ -273,6 +273,7 @@ const orgBrandingSettingsSchema = z.object({
     prideScope: z.enum(['cohort', 'org']).optional(),
     brandingTier: z.enum(['standard', 'branded', 'white_label']).optional(),
     joinLayout: z.enum(['standard', 'hero']).optional(),
+    faviconUrl: z.string().trim().url().max(512).nullable().optional(),
 });
 
 const createOrgBodySchema = z.object({
@@ -300,7 +301,16 @@ const updateOrgBodySchema = z.object({
 
 const updateMyOrgBodySchema = z.object({
     settings: orgBrandingSettingsSchema
-        .pick({ allowPublicOptIn: true, accentColor: true })
+        .pick({
+            allowPublicOptIn: true,
+            accentColor: true,
+            logoUrl: true,
+            bannerUrl: true,
+            welcomeMessage: true,
+            prideScope: true,
+            joinLayout: true,
+            faviconUrl: true,
+        })
         .partial()
         .refine((value) => Object.keys(value).length > 0, {
             message: 'Provide at least one setting to update',
@@ -344,6 +354,10 @@ const joinCohortBodySchema = z.object({
 
 const joinPreviewQuerySchema = z.object({
     code: z.string().trim().min(3).max(24),
+});
+
+const assignMemberCohortBodySchema = z.object({
+    cohortId: z.string().trim().min(1).max(64),
 });
 
 const publicAccessBodySchema = z.object({
@@ -441,6 +455,7 @@ module.exports = {
     updateCohortBodySchema,
     joinCohortBodySchema,
     joinPreviewQuerySchema,
+    assignMemberCohortBodySchema,
     publicAccessBodySchema,
     validateBody,
     validateQuery,

@@ -96,6 +96,30 @@ async function countByCohort(cohortId) {
     return (await col()).countDocuments({ cohort_id: cid, status: 'active' });
 }
 
+async function listActiveForOrgUser(orgId, userId) {
+    const oid = asObjectId(orgId);
+    const uid = String(userId || '').trim();
+    if (!oid || !uid) return [];
+    const rows = await (await col())
+        .find({ org_id: oid, user_id: uid, status: 'active' })
+        .sort({ joined_at: -1 })
+        .toArray();
+    return rows.map(toPublic);
+}
+
+async function deactivateForOrgUser(orgId, userId, { exceptCohortId } = {}) {
+    const oid = asObjectId(orgId);
+    const uid = String(userId || '').trim();
+    if (!oid || !uid) return 0;
+    const filter = { org_id: oid, user_id: uid, status: 'active' };
+    const exceptId = exceptCohortId ? asObjectId(exceptCohortId) : null;
+    if (exceptId) filter.cohort_id = { $ne: exceptId };
+    const result = await (await col()).updateMany(filter, {
+        $set: { status: 'removed', updated_at: new Date() },
+    });
+    return result.modifiedCount || 0;
+}
+
 module.exports = {
     COLLECTION,
     ensureIndexes,
@@ -104,4 +128,6 @@ module.exports = {
     listByCohort,
     listByUser,
     countByCohort,
+    listActiveForOrgUser,
+    deactivateForOrgUser,
 };

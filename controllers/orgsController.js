@@ -15,7 +15,7 @@ function mapOrgError(err, res) {
     if (code === 'owner_not_found' || code === 'org_not_found' || code === 'invite_not_found') {
         return res.status(404).json({ error: err.message, code });
     }
-    if (code === 'seat_cap' || code === 'invite_email_mismatch' || code === 'account_exists' || code === 'invite_already_completed' || code === 'role_conflict_student' || code === 'staff_invite_pending') {
+    if (code === 'seat_cap' || code === 'invite_email_mismatch' || code === 'account_exists' || code === 'invite_already_completed' || code === 'role_conflict_student' || code === 'staff_invite_pending' || code === 'already_in_cohort') {
         return res.status(409).json({ error: err.message, code });
     }
     if (code === 'invalid_password' || code === 'invalid_cohort') {
@@ -163,7 +163,9 @@ exports.getMyOrg = async (req, res) => {
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
         const { org, membership } = await requireOrgStaff(req.params.id, userId);
         const withSeats = await orgs.getOrgWithSeats(org.id);
-        const members = await orgs.listOrgMembers(org.id);
+        const membersRaw = await orgs.listOrgMembers(org.id);
+        const { enrichMembersWithCohorts } = require('../helpers/orgMemberRoster');
+        const members = await enrichMembersWithCohorts(org.id, membersRaw);
         const cohortList = await cohorts.listCohorts(org.id);
         return res.json({
             success: true,
@@ -284,6 +286,35 @@ exports.cancelInvite = async (req, res) => {
             asSuperadmin,
         });
         return res.json({ success: true, membership: cancelled });
+    } catch (err) {
+        return mapOrgError(err, res);
+    }
+};
+
+exports.removeStudentMember = async (req, res) => {
+    try {
+        const userId = req.user && req.user.user_id;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const membership = await orgs.removeStudentMember({
+            orgId: req.params.id,
+            userId: req.params.userId,
+            actorUserId: userId,
+        });
+        return res.json({ success: true, membership });
+    } catch (err) {
+        return mapOrgError(err, res);
+    }
+};
+
+exports.leaveOrg = async (req, res) => {
+    try {
+        const userId = req.user && req.user.user_id;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const membership = await orgs.leaveOrgAsStudent({
+            orgId: req.params.id,
+            userId,
+        });
+        return res.json({ success: true, membership });
     } catch (err) {
         return mapOrgError(err, res);
     }

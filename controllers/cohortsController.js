@@ -15,6 +15,9 @@ function mapCohortError(err, res) {
     if (code === 'seat_cap' || code === 'org_suspended') {
         return res.status(409).json({ error: err.message, code });
     }
+    if (code === 'already_in_cohort') {
+        return res.status(409).json({ error: err.message, code });
+    }
     if (code === 'org_forbidden') {
         return res.status(403).json({ error: err.message, code });
     }
@@ -87,6 +90,23 @@ exports.joinCohort = async (req, res) => {
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
         const body = req.validatedBody || req.body || {};
         const result = await cohorts.joinByCode({ code: body.code, userId });
+        return res.json({ success: true, ...result });
+    } catch (err) {
+        return mapCohortError(err, res);
+    }
+};
+
+exports.assignMemberToCohort = async (req, res) => {
+    try {
+        const userId = req.user && req.user.user_id;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        await requireOrgStaff(req.params.id, userId);
+        const body = req.validatedBody || req.body || {};
+        const result = await cohorts.assignStudentToCohort({
+            orgId: req.params.id,
+            cohortId: body.cohortId,
+            userId: req.params.userId,
+        });
         return res.json({ success: true, ...result });
     } catch (err) {
         return mapCohortError(err, res);

@@ -6,6 +6,7 @@ const defaultCurriculumRepo = require('../repositories/curriculumRepo');
 const defaultUsersRepo = require('../repositories/usersRepo');
 const { resolveOrgAccent } = require('./orgBranding');
 const { seatCountsForRole } = require('./orgSlug');
+const { normalizeJoinCode, suggestJoinCode } = require('./joinCode');
 
 function createCohortsService({
     orgsRepo = defaultOrgsRepo,
@@ -90,6 +91,82 @@ function createCohortsService({
         }
     }
 
+    async function enrollStudentInCohortPrograms({ cohort, orgId, userId }) {
+        const enrolled = [];
+        for (const programId of cohort.programIds || []) {
+            const result = await curriculumRepo.ensureRegistration({
+                userId,
+                programId,
+                orgId,
+                cohortId: cohort.id,
+                source: 'cohort',
+            });
+            if (result.created || result.registration) {
+                enrolled.push({
+                    programId: String(programId),
+                    created: Boolean(result.created),
+                });
+            }
+        }
+        return enrolled;
+    }
+
+    async function assertNoOtherCohortInOrg({ orgId, userId, cohortId }) {
+        const active = await cohortMembershipsRepo.listActiveForOrgUser(orgId, userId);
+        const conflict = active.find((row) => String(row.cohortId) !== String(cohortId));
+        if (conflict) {
+            const err = new Error(
+                'This student is already in another class for this club. Ask your club leader to move them.',
+            );
+            err.code = 'already_in_cohort';
+            throw err;
+        }
+    }
+
+    async function assignStudentToCohort({ orgId, cohortId, userId } = {}) {
+        const uid = String(userId || '').trim();
+        const oid = String(orgId || '').trim();
+        const cid = String(cohortId || '').trim();
+        if (!uid || !oid || !cid) {
+            const err = new Error('orgId, cohortId, and userId are required');
+            err.code = 'invalid_member';
+            throw err;
+        }
+
+        const cohort = await cohortsRepo.findById(cid);
+        if (!cohort || String(cohort.orgId) !== oid) {
+            const err = new Error('Cohort not found');
+            err.code = 'join_code_not_found';
+            throw err;
+        }
+
+        const membership = await orgMembershipsRepo.findMembership(oid, uid);
+        if (!membership || membership.status !== 'active' || membership.role !== 'student') {
+            const err = new Error('Active student membership required');
+            err.code = 'invalid_member';
+            throw err;
+        }
+
+        await cohortMembershipsRepo.deactivateForOrgUser(oid, uid, { exceptCohortId: cid });
+        const cohortMembership = await cohortMembershipsRepo.upsert({
+            cohortId: cid,
+            orgId: oid,
+            userId: uid,
+            status: 'active',
+        });
+        const enrolled = await enrollStudentInCohortPrograms({
+            cohort,
+            orgId: oid,
+            userId: uid,
+        });
+
+        return {
+            cohort: await withCounts(cohort),
+            cohortMembership,
+            enrolled,
+        };
+    }
+
     async function previewJoinCode(code) {
         const cohort = await cohortsRepo.findByJoinCode(code);
         if (!cohort) {
@@ -113,6 +190,9 @@ function createCohortsService({
                 accentColor: org.settings?.accentColor || resolveOrgAccent(org.slug, null),
                 welcomeMessage: org.settings?.welcomeMessage || null,
                 logoUrl: org.settings?.logoUrl || null,
+                bannerUrl: org.settings?.bannerUrl || null,
+                joinLayout: org.settings?.joinLayout || 'standard',
+                faviconUrl: org.settings?.faviconUrl || null,
             },
         };
     }
@@ -153,6 +233,15 @@ function createCohortsService({
         }
 
         const existingCohort = await cohortMembershipsRepo.find(cohort.id, uid);
+
+        if (!(existingCohort && existingCohort.status === 'active')) {
+            await assertNoOtherCohortInOrg({
+                orgId: org.id,
+                userId: uid,
+                cohortId: cohort.id,
+            });
+        }
+
         const cohortMembership = await cohortMembershipsRepo.upsert({
             cohortId: cohort.id,
             orgId: org.id,
@@ -160,22 +249,11 @@ function createCohortsService({
             status: 'active',
         });
 
-        const enrolled = [];
-        for (const programId of cohort.programIds || []) {
-            const result = await curriculumRepo.ensureRegistration({
-                userId: uid,
-                programId,
-                orgId: org.id,
-                cohortId: cohort.id,
-                source: 'cohort',
-            });
-            if (result.created || result.registration) {
-                enrolled.push({
-                    programId: String(programId),
-                    created: Boolean(result.created),
-                });
-            }
-        }
+        const enrolled = await enrollStudentInCohortPrograms({
+            cohort,
+            orgId: org.id,
+            userId: uid,
+        });
 
         return {
             org: await orgsRepo.findById(org.id),
@@ -194,6 +272,7 @@ function createCohortsService({
         updateCohort,
         previewJoinCode,
         joinByCode,
+        assignStudentToCohort,
         withCounts,
     };
 }
@@ -208,4 +287,5 @@ module.exports = {
     updateCohort: defaults.updateCohort,
     previewJoinCode: defaults.previewJoinCode,
     joinByCode: defaults.joinByCode,
+    assignStudentToCohort: defaults.assignStudentToCohort,
 };

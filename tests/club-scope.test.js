@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveClubScope, parseOrgIdQuery } = require('../helpers/clubScope');
+const { resolveClubScope, resolvePrideScopeMode, parseOrgIdQuery } = require('../helpers/clubScope');
 
 describe('clubScope', () => {
     it('parses org_id query and treats personal as global', async () => {
@@ -21,5 +21,12 @@ describe('clubScope', () => {
             () => resolveClubScope({ orgId: 'org1', viewerId: null }),
             (err) => err.code === 'unauthorized'
         );
+    });
+
+    it('honours org prideScope setting over automatic cohort preference', () => {
+        assert.equal(resolvePrideScopeMode('org', true), 'org');
+        assert.equal(resolvePrideScopeMode('org', false), 'org');
+        assert.equal(resolvePrideScopeMode('cohort', true), 'cohort');
+        assert.equal(resolvePrideScopeMode('cohort', false), 'org');
     });
 });

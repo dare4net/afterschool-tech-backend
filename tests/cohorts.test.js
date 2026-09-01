@@ -140,6 +140,14 @@ function memoryCohorts() {
                     (row) => row.cohortId === String(cohortId) && row.status === 'active'
                 ).length;
             },
+            async listActiveForOrgUser(oId, userId) {
+                return cohortMemberships.filter(
+                    (row) =>
+                        row.orgId === String(oId) &&
+                        row.userId === String(userId) &&
+                        row.status === 'active',
+                );
+            },
         },
         curriculumRepo: {
             async ensureRegistration(input) {

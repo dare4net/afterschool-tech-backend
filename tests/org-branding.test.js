@@ -10,6 +10,7 @@ const {
     publicBrandingFromOrg,
     brandingPatchToDb,
 } = require('../helpers/orgBranding');
+const { updateMyOrgBodySchema } = require('../contracts/platform');
 
 const ROOT = join(__dirname, '..');
 const read = (relative) => readFileSync(join(ROOT, relative), 'utf8');
@@ -40,6 +41,40 @@ describe('orgBranding', () => {
         assert.equal(orgCanUse('standard', 'logo'), false);
         assert.equal(orgCanUse('branded', 'logo'), true);
         assert.equal(orgCanUse('white_label', 'joinLayout'), true);
+        assert.equal(orgCanUse('branded', 'joinLayout'), false);
+        assert.equal(orgCanUse('white_label', 'favicon'), true);
+    });
+
+    it('strips tier-3 fields on read for lower tiers', () => {
+        const mapped = mapSettingsFromDoc(
+            {
+                branding_tier: 'branded',
+                join_layout: 'hero',
+                favicon_url: 'https://cdn.example/f.ico',
+            },
+            'riverside',
+        );
+        assert.equal(mapped.joinLayout, 'standard');
+        assert.equal(mapped.faviconUrl, null);
+    });
+
+    it('exposes join layout and favicon on public branding for white label', () => {
+        const payload = publicBrandingFromOrg({
+            id: '1',
+            name: 'Riverside',
+            slug: 'riverside',
+            settings: mapSettingsFromDoc(
+                {
+                    branding_tier: 'white_label',
+                    join_layout: 'hero',
+                    favicon_url: 'https://cdn.example/f.ico',
+                    accent_color: '#58CC02',
+                },
+                'riverside',
+            ),
+        });
+        assert.equal(payload.joinLayout, 'hero');
+        assert.equal(payload.faviconUrl, 'https://cdn.example/f.ico');
     });
 
     it('builds a safe public branding payload', () => {
@@ -58,6 +93,14 @@ describe('orgBranding', () => {
         const patch = brandingPatchToDb({ accentColor: '#FF9600' }, { tier: 'standard' });
         assert.deepEqual(patch, { accent_color: '#FF9600' });
     });
+
+    it('allows owners to patch white-label settings', () => {
+        const parsed = updateMyOrgBodySchema.parse({
+            settings: { joinLayout: 'hero', faviconUrl: 'https://cdn.example/f.ico' },
+        });
+        assert.equal(parsed.settings.joinLayout, 'hero');
+        assert.equal(parsed.settings.faviconUrl, 'https://cdn.example/f.ico');
+    });
 });
 
 describe('org branding wiring', () => {
@@ -65,5 +108,6 @@ describe('org branding wiring', () => {
         assert.match(read('repositories/orgsRepo.js'), /mapSettingsFromDoc/);
         assert.match(read('controllers/orgsController.js'), /publicBrandingFromOrg/);
         assert.match(read('helpers/cohorts.js'), /accentColor/);
+        assert.match(read('helpers/brandedEmailTemplates.js'), /buildStaffInviteEmail/);
     });
 });
